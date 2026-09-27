@@ -21,6 +21,14 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
+
+// 读 .build-env（环境变量优先）。放文件里是为了避免「忘了传 PUBLIC_GA_ID → 线上 GA 静默消失」。
+if (existsSync(join(ROOT, '.build-env'))) {
+  for (const line of readFileSync(join(ROOT, '.build-env'), 'utf8').split('\n')) {
+    const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.+?)\s*$/);
+    if (m && !process.env[m[1]]) process.env[m[1]] = m[2];
+  }
+}
 const OUT = join(ROOT, 'site');
 const SITE_URL = process.env.SITE_URL || 'https://voxelsurvivor.site';
 
@@ -84,6 +92,13 @@ writeFileSync(join(OUT, 'favicon.svg'), `<svg xmlns="http://www.w3.org/2000/svg"
   <rect x="14" y="22" width="4" height="6" fill="#7fd1c8"/>
 </svg>
 `);
+
+// IndexNow 所有权证明：key 必须托管在 /<key>.txt（Bing/Yandex/Naver 会来抓它）
+// Google 不参与 IndexNow，这条只是 Bing 侧的加速。
+if (existsSync(join(ROOT, '.indexnow-key'))) {
+  const k = readFileSync(join(ROOT, '.indexnow-key'), 'utf8').trim();
+  if (k) writeFileSync(join(OUT, `${k}.txt`), k + '\n');
+}
 
 // 缓存 + 安全头（Cloudflare Workers 静态资源支持 _headers）
 writeFileSync(join(OUT, '_headers'), `/*

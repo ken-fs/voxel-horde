@@ -1,0 +1,4 @@
+# 构建期变量（build-site.mjs 读取；环境变量优先）
+# 放这里而不是每次命令行传，避免「忘了传 PUBLIC_GA_ID → 线上 GA 静默消失」
+SITE_URL=https://voxelsurvivor.site
+PUBLIC_GA_ID=G-SFCZS1DK7Y
