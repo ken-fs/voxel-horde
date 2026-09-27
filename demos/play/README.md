@@ -1,4 +1,4 @@
-# 可玩版：Voxel Horde（v2.8 — Boss 技能 + 据点野怪 + 直线火焰）
+# 可玩版：Voxel Survivors（v2.8 — Boss 技能 + 据点野怪 + 直线火焰）
 
 ## v2.13：8 种装备 = 8 种武器外观
 
