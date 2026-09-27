@@ -49,6 +49,19 @@
   .dmg { position: absolute; font-size: 13px; font-weight: 700; color: #fff; will-change: transform, opacity; }
   .dmg.crit { font-size: 17px; color: #ffcf7a; }
   /* 危险红闪 */
+  #loading { position: fixed; inset: 0; z-index: 100; background: #0b0f14; display: flex;
+             align-items: center; justify-content: center; transition: opacity .55s; }
+  #loading.gone { opacity: 0; pointer-events: none; }
+  #loading .lg { text-align: center; padding: 0 22px; max-width: 460px; }
+  #loading h1 { font-size: clamp(22px, 7vw, 40px); letter-spacing: .22em; color: #9ff5e6;
+                margin: 0 0 18px; font-weight: 700; text-shadow: 0 0 26px #7fd1c855; }
+  #loading .lg-bar { height: 5px; width: min(320px, 74vw); margin: 0 auto 10px; background: #ffffff1a;
+                     border-radius: 3px; overflow: hidden; }
+  #loading .lg-bar > i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #7fd1c8, #ffcf7a);
+                         transform-origin: left; transform: scaleX(0); transition: transform .18s; }
+  #loading .lg-pct { font-size: 12px; color: #8fa6b4; letter-spacing: .06em; }
+  #loading .lg-tip { margin-top: 22px; font-size: 11.5px; color: #6f8592; line-height: 1.8; }
+  #loading .lg-tip b { color: #7fd1c8; }
   #danger { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 120px #d0402caa; opacity: 0; transition: opacity .2s; }
   /* 升级 / 结算 */
   #levelup, #over { inset: 0; display: none; place-items: center; background: #04070ad0; z-index: 10; }
@@ -108,6 +121,14 @@
 </style>
 </head>
 <body>
+<div id="loading">
+  <div class="lg">
+    <h1>VOXEL HORDE</h1>
+    <div class="lg-bar"><i id="lgFill"></i></div>
+    <div class="lg-pct" id="lgPct">加载中…</div>
+    <div class="lg-tip"><b>左半屏拖动</b>移动 · 点右下<b>技能卡</b>放技能<br>普攻自动，但只打身前扇形 —— 背对敌人会被打</div>
+  </div>
+</div>
 <div id="danger"></div>
 <div id="nums"></div>
 <div class="ui" id="top">
@@ -154,6 +175,46 @@
   <button id="again">再来一次</button>
 </div></div>
 
+<script>
+// 加载进度：用 fetch 读 three.js 的下载进度。读完后 module import 会命中 HTTP 缓存，不会重复下载。
+// 兜底：读不到 content-length（或 fetch 失败）就退化成不确定进度条，绝不卡住不出。
+(function () {
+  var el = document.getElementById('loading'), fill = document.getElementById('lgFill'), pct = document.getElementById('lgPct');
+  var done = false;
+  window.__loadingDone = function () {
+    if (done) return; done = true;
+    el.classList.add('gone');
+    setTimeout(function () { el.remove(); }, 700);
+  };
+  // 提示文案按设备切换（此脚本早于 module 运行，body 的 touch class 还没加上）
+  if (!matchMedia('(pointer: coarse)').matches) {
+    document.querySelector('#loading .lg-tip').innerHTML =
+      '<b>WASD</b> 移动 · <b>Space</b> 旋风斩 · <b>Shift</b> 冲刺（含无敌帧）<br>普攻自动，但只打身前扇形 —— 背对敌人会被打';
+  }
+  fetch('../../vendor/three/three.module.js').then(function (r) {
+    var len = r.headers.get('content-length');
+    if (!r.ok || !r.body || !len) throw new Error('no-progress');
+    var total = +len, got = 0;
+    var reader = r.body.getReader();
+    var tick = function () {
+      return reader.read().then(function (res) {
+        if (res.done) return;
+        got += res.value.length;
+        var p = Math.min(99, Math.round(got / total * 100));
+        fill.style.transform = 'scaleX(' + (p / 100) + ')';
+        pct.textContent = p + '%';
+        return tick();
+      });
+    };
+    return tick();
+  }).catch(function () {
+    pct.textContent = '加载中…';
+    fill.style.transition = 'transform 6s ease-out';
+    fill.style.transform = 'scaleX(.9)';       // 不确定进度：慢慢推到 90% 等首帧
+  });
+  setTimeout(function () { if (!done) pct.textContent = pct.textContent.replace(' …', '') + '（网络较慢，请稍候…）'; }, 12000);
+})();
+</script>
 <script type="importmap">
 { "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }
 </script>
@@ -1820,6 +1881,7 @@ function frame(now) {
   } else bossEl.classList.remove('on');
 
   requestAnimationFrame(frame);
+  if (!game.firstFrame) { game.firstFrame = 1; requestAnimationFrame(() => window.__loadingDone && window.__loadingDone()); }
 }
 requestAnimationFrame(frame);
 
