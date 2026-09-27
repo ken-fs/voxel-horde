@@ -2224,6 +2224,11 @@ function simStep() {
   if (BOT) faceNearest();                 // ?bot=1：替玩家转向（快进测试用）
   if (S.cdSpin > 0) S.cdSpin--;
   if (S.cdDash > 0) S.cdDash--;
+  // ⚠️ v2.21 修：这一行从大招诞生的第一天起就不存在 ——
+  //    结果是大招一局只能放一次（cd 永远停在 480 不递减）。
+  //    之所以一直没被发现：之前所有测试都是手动 S.cdNova = 0 再施放，
+  //    只验证了「能不能放」，从没验证过「冷却结束后能不能再放」。
+  if (S.cdNova > 0) S.cdNova--;
   if (S.comboT < 9999) S.comboT++;              // 同批递减窗口
   if (S.invuln > 0) S.invuln--;
 
