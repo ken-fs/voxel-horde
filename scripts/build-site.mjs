@@ -39,6 +39,19 @@ if (after !== 0) {
 }
 // canonical / og:url 用真实域名（源码里写的是相对，构建时补全）
 html = html.replaceAll('__SITE_URL__', SITE_URL);
+
+// GA：不传 PUBLIC_GA_ID 就把整块门控代码删掉（不留横幅、不留第三方请求）
+// —— 和 petsuniverse 的语义一致：复制别的站的 ID 会把本站流量送进别人属性，所以不设兜底。
+const GA_ID = process.env.PUBLIC_GA_ID || '';
+if (GA_ID) {
+  html = html.replaceAll('__GA_ID__', GA_ID);
+} else {
+  const before2 = html.length;
+  html = html.replace(/\/\* ANALYTICS:START \*\/[\s\S]*?\/\* ANALYTICS:END \*\//g, '');          // 横幅 CSS
+  html = html.replace(/<!-- ANALYTICS:START -->[\s\S]*?<!-- ANALYTICS:END -->\n?/g, '');           // 横幅 DOM
+  html = html.replace(/<script>\n\/\/ 同意门控的 Google Analytics[\s\S]*?<\/script>\n/g, '');      // 门控脚本
+  console.log(`  GA: 未配置 PUBLIC_GA_ID → 已移除门控代码块（-${before2 - html.length} 字符）`);
+}
 writeFileSync(join(OUT, 'index.html'), html);
 
 // ── 3. 运行库
@@ -98,5 +111,6 @@ console.log(`✓ site/ 已生成`);
 console.log(`  游戏 HTML 改写 ../../ 共 ${before} 处 → 0`);
 console.log(`  部署标记: ${head.slice(0, 12)}`);
 console.log(`  SITE_URL: ${SITE_URL}`);
+console.log(`  GA_ID: ${GA_ID || '(未配置，不加载分析)'}`);
 const size = execSync(`du -sh ${OUT} | cut -f1`, { encoding: 'utf8' }).trim();
 console.log(`  产物大小: ${size}`);
