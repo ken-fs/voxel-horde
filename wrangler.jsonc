@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "voxel-survivors",
+  "compatibility_date": "2026-08-01",
+  // 静态站：scripts/build-site.mjs 把游戏本体 + lib + vendor 组装进 ./site
+  "assets": {
+    "directory": "./site",
+    "not_found_handling": "404-page",
+    "html_handling": "auto-trailing-slash"
+  }
+}
