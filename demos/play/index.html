@@ -666,6 +666,25 @@ function burst(x, y, z, n, o = {}) {
     });
   }
 }
+// 漩涡粒子：绕施放点旋转 + 上升（与普通 burst 的区别就在这个"转"）
+function vortex(x, y, z, n, o = {}) {
+  const { r0 = 0.8, r1 = 4.0, swirl = 6.0, life = 0.65, size = 1.5, up = 4.2, rise = true,
+    colors = [0xfff3c4, 0xffb43c] } = o;
+  for (let k = 0; k < n; k++) {
+    if (parts.length >= PARTS) parts.shift();
+    const a = Math.random() * Math.PI * 2;
+    const r = r0 + Math.random() * (r1 - r0);
+    parts.push({
+      x: x + Math.sin(a) * r, y: y + Math.random() * 0.7, z: z + Math.cos(a) * r,
+      vx: 0, vz: 0, vy: up * (0.25 + Math.random() * 0.7), rise,
+      sw: swirl * (0.8 + Math.random() * 0.5), sx: x, sz: z,
+      life: life * (0.7 + Math.random() * 0.85),
+      size: size * (0.5 + Math.random() * 0.8),
+      color: colors[(Math.random() * colors.length) | 0],
+    });
+  }
+}
+
 function updateParts(dt) {
   let n = 0;
   for (let i = parts.length - 1; i >= 0; i--) {
@@ -673,6 +692,12 @@ function updateParts(dt) {
     p.life -= dt;
     if (p.life <= 0) { parts.splice(i, 1); continue; }
     if (p.rise) p.vy *= 0.985; else p.vy -= 20 * dt;      // 火焰上升不落地
+    if (p.sw) {                                    // v2.23：漩涡 —— 绕施放点旋转（做刀风用）
+      const dx = p.x - p.sx, dz = p.z - p.sz;
+      const a = p.sw * dt, ca = Math.cos(a), sa = Math.sin(a);
+      p.x = p.sx + dx * ca - dz * sa;
+      p.z = p.sz + dx * sa + dz * ca;
+    }
     p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
     if (!p.rise && p.y < 0.09) { p.y = 0.09; p.vy *= -0.32; p.vx *= 0.68; p.vz *= 0.68; }
     const sc = p.size * Math.min(1, p.life * 3.5);
@@ -703,14 +728,18 @@ function ghostAt(x, z, yaw) {
 
 // 旋风斩（v2.4 火焰版）：3 道由炽白到暗红、错开扩散的火环
 const FIRE_COLS = [0xfff3c4, 0xffc14a, 0xff7a24, 0xc22a08];
-const spinWaves = [];
-for (let i = 0; i < 3; i++) {
-  const m = new THREE.Mesh(new THREE.RingGeometry(0.72, 1.0, 64),
-    new THREE.MeshBasicMaterial({ color: FIRE_COLS[i], transparent: true, opacity: 0, side: THREE.DoubleSide,
-      depthWrite: false, blending: THREE.AdditiveBlending }));
+// v2.23：原来是 3 个完整细圆环（"就是一个圆圈，不够酷炫"）。
+// 改成 6 道**不等长的弧**，各自以不同速度旋转扫过 —— 读起来才像"多道刀光劈过去"。
+const slashArcs = [];
+for (let i = 0; i < 6; i++) {
+  const len = (0.36 + i * 0.058) * Math.PI;                    // 65° → 167°，不等长才不呆板
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.86, 1.0, 30, 1, 0, len),
+    new THREE.MeshBasicMaterial({ color: FIRE_COLS[i % FIRE_COLS.length], transparent: true, opacity: 0,
+      side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
   m.rotation.x = -Math.PI / 2;
   scene.add(m);
-  spinWaves.push({ m, t: 1, delay: i * 0.07, scale0: 1 });
+  slashArcs.push({ m, t: 1, dur: 0.5, a0: i * 1.05, delay: i * 0.03,
+    spin: (i % 2 ? 1 : -1) * (5.4 + i * 0.75), s0: 1 });       // 交替正反方向转，更有"乱刀"感
 }
 // 火盘：旋风瞬间在脚下铺开的一层火焰（随升级变大）
 const fireDisc = new THREE.Mesh(new THREE.RingGeometry(0.42, 1.0, 56),
@@ -986,15 +1015,15 @@ function doSpin() {
   S.atkFlash = 14;
   S.flash = 0.18;                                    // 屏幕白闪（post.render 的 flash 参数）
   S.heroSpin = 0.42;                                 // 英雄本体旋转一圈
-  for (const w of spinWaves) { w.t = -w.delay; w.scale0 = R * 0.92; }
+  for (const w of slashArcs) { w.t = -w.delay; w.s0 = R * 1.02; }
   // 火焰粒子：随半径铺开一圈 + 中心一团上升火舌
-  const n = Math.min(90, 24 + Math.round(R * 5) + hit * 2);
-  burst(hero.x, 0.3, hero.z, n, { speed: 3.0 + R * 0.75, life: 0.6, size: 1.7, up: 4.0, rise: true,
-    colors: [0xff7a24, 0xffb43c, 0xffe08a, 0xff4a10, 0xfff3c4] });
-  burst(hero.x, 0.6, hero.z, 18, { speed: 1.4, life: 0.75, size: 2.1, up: 5.4, rise: true, colors: [0xffc14a, 0xfff3c4, 0xff7a24] });
+  const n = Math.min(78, 26 + Math.round(R * 4.5) + hit);
+  vortex(hero.x, 0.25, hero.z, n, { r0: 0.7, r1: Math.max(2.2, R * 0.95), swirl: 7.2, life: 0.72,
+    size: 1.6, up: 4.4, colors: [0xfff3c4, 0xffe08a, 0xffb43c, 0xff7a24] });
+  burst(hero.x, 0.6, hero.z, 16, { speed: 1.2, life: 0.75, size: 2.0, up: 5.6, rise: true, colors: [0xffc14a, 0xfff3c4] });
   fireDisc.position.set(hero.x, 0.07, hero.z);
   fireDisc.scale.setScalar(R * 0.95);
-  fireDisc.material.opacity = 0.34;
+  fireDisc.material.opacity = 0.24;
   SFX.spin();
 }
 
@@ -2365,13 +2394,15 @@ function frame(now) {
   slashGroup.rotation.y = hero.yaw;
   slash.material.opacity = (S.atkFlash / 9) * 0.3;
   // 旋风冲击环（3 道错开）
-  for (const w of spinWaves) {
-    if (w.t >= 1) { w.m.material.opacity = 0; continue; }
-    w.t += dt;
+  for (const w of slashArcs) {                                   // 斩击弧：边转边扩边淡
+    if (w.t >= 1) { if (w.m.material.opacity) w.m.material.opacity = 0; continue; }
+    w.t += dt / w.dur;
     if (w.t < 0) { w.m.material.opacity = 0; continue; }
-    w.m.position.set(hero.x, 0.08, hero.z);
-    w.m.scale.setScalar(w.scale0 * (0.35 + w.t * 1.25));
-    w.m.material.opacity = Math.max(0, 0.5 * (1 - w.t));
+    const k = Math.min(1, w.t);
+    w.m.position.set(hero.x, 0.09 + k * 0.34, hero.z);
+    w.m.rotation.z = w.a0 + k * w.spin;
+    w.m.scale.setScalar(w.s0 * (0.48 + k * 0.95));
+    w.m.material.opacity = Math.max(0, Math.pow(1 - k, 1.4)) * 0.6;
   }
   // 火盘淡出 + 微微扩散
   if (fireDisc.material.opacity > 0) {
