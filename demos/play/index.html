@@ -878,6 +878,7 @@ function hitSparks(x, z, crit) {
     colors: crit ? [0xffffff, 0xffe08a, 0xffb43c] : [0xfff3c4, 0xffd06a] });
 }
 function hitMonster(m, amount, crit) {
+  if ((frozenM.get(m) || 0) > 0) amount *= 1.5;  // 冻住的野怪同样 +50%
   m.hp -= amount;
   m.hurt = 0.22;
   const dx = m.x - hero.x, dz = m.z - hero.z, d = Math.hypot(dx, dz) || 1;
@@ -890,6 +891,7 @@ function hitMonster(m, amount, crit) {
 
 function hurt(i, amount, crit) {
   const c = game.crowd;
+  if (frozenC[i] > 0) amount *= 1.5;             // v2.22：冻住的目标受伤 +50%
   c.hp[i] -= amount;
   c.flash[i] = 11;
   c.hitHeavy[i] = crit ? 1 : 0;
@@ -1885,6 +1887,29 @@ function strikeBolt(x, z) {
   b.g.children.forEach((seg, k) => { seg.position.x = (Math.random() - 0.5) * 0.6; seg.position.z = (Math.random() - 0.5) * 0.6; seg.rotation.z = (Math.random() - 0.5) * 0.45; seg.scale.y = 1.1 + k * 0.9; });
   burst(x, 0.4, z, 8, { speed: 4.6, life: 0.4, size: 0.9, up: 5, colors: [0xdff3ff, 0x9fe8ff, 0xffffff] });
 }
+// 冰块视觉：套在被冻单位身上的半透明方块（池化 14 个，跟着前 14 个冻结目标走）
+const icePool = [];
+for (let i = 0; i < 14; i++) {
+  const m = new THREE.Mesh(new THREE.BoxGeometry(1.5, 2.6, 1.5),
+    new THREE.MeshStandardMaterial({ color: 0xbfe9ff, transparent: true, opacity: 0.42, roughness: 0.1, metalness: 0.2, emissive: 0x1a4a66, depthWrite: false }));
+  m.visible = false;
+  scene.add(m);
+  icePool.push(m);
+}
+function updateIceBlocks() {
+  const c = game.crowd;
+  let k = 0;
+  for (let i = 0; i < c.N && k < icePool.length; i++) {
+    if (frozenC[i] <= 0 || c.st[i] === ST.OFF || c.st[i] === ST.DEAD) continue;
+    const m = icePool[k++];
+    m.visible = true;
+    m.position.set(c.x[i], 1.3, c.z[i]);
+    m.rotation.y = (i % 7) * 0.9;
+    m.material.opacity = 0.28 + 0.2 * Math.min(1, frozenC[i] / 1.2);   // 快解冻时变淡
+  }
+  for (; k < icePool.length; k++) if (icePool[k].visible) icePool[k].visible = false;
+}
+
 function updateBolts(dt) {
   for (const b of boltPool) {
     if (b.t >= 1) { if (b.g.visible) b.g.visible = false; continue; }
@@ -1961,7 +1986,10 @@ function castBolt(d0) {
 
 // ── 冰：范围冻结（定住挨打）
 function castFrost(d0) {
-  const R = 10.5, FREEZE = 3.2, dmgF = d0 * 0.55;
+  // v2.22：伤害 d0*0.55 → d0*0.12。
+  // 原来一放就把范围内全秒了（伤害 74~148 vs 小兵血 27~70），
+  // 玩家根本看不到"冻住"的过程 —— 冰的定位应该是**控制**，不是输出。
+  const R = 10.5, FREEZE = 3.6, dmgF = d0 * 0.12;
   const c = game.crowd;
   if (frozenC.length < c.N) frozenC = new Float32Array(c.N);
   for (let i = 0; i < c.N; i++) {
@@ -2374,6 +2402,7 @@ function frame(now) {
   updateBolts(S.paused ? 0 : dt);
   updateFrostRings(S.paused ? 0 : dt);
   tickFrozen(S.paused ? 0 : dt);
+  updateIceBlocks();
   updateParts(dt);
 
   // 相机固定朝向（v2.1 修 bug）：原来按 hero 相对原点的角度摆放相机，
