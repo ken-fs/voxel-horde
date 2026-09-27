@@ -228,7 +228,7 @@ const S = {
   paused: false, dead: false, atkCd: 0, atkFlash: 0, shake: 0, cdSpin: 0, cdDash: 0, invuln: 0,
   boss: null, flash: 0, heroSpin: 0, cdNova: 0, novaUnlocked: false,
   firstBossDown: false, monsterT: 0, killsMonster: 0, gear: 0, bossIn: 0,
-  comboT: 9999, comboN: 0,
+  comboT: 9999, comboN: 0, weaponType: -1,
   up: { dmg: 0, spd: 0, rad: 0, move: 0, hp: 0, regen: 0, crit: 0, fire: 0, lifesteal: 0 },
 };
 const hero = { x: 0, y: 0, z: 0, hp: CFG.heroHpMax, hpMax: CFG.heroHpMax, yaw: 0, state: 'idle' };
@@ -317,65 +317,98 @@ function buildWeapon() {
   g.rotation.set(0.13, 0, -0.11);
 
   const n = equipGot.reduce((a, b) => a + b, 0);
-  const tier = Math.min(3, Math.floor(n / 3));
-  const got = equipGot.map((c) => c > 0);
-  const BL = 1.0 + 0.13 * n + 0.26 * tier;              // 剑身长度：随收集数成长（0件 1.0 → 满装 2.8，比人物还高）
-  const BW = 0.17 + 0.035 * tier;                       // 剑身宽度
-  const metal = got[0] ? 0xd05a4a : 0xdfe8f2;           // 血刃 → 剑身血红（都用亮色，场景无环境贴图，暗色会发黑）
-  const emis = got[3] ? 0x6a2a00 : 0x000000;            // 火符 → 剑身自发光
+  const t = S.weaponType;                                  // -1 = 素钢短剑，0..7 = 对应装备的武器
+  const STEEL = 0xdfe8f2, BLOOD = 0xd05a4a, BONE = 0xf0e4c8, GOLD = 0xffd06a, WOOD = 0x4a3428, CRYS = 0x7fe3d0, DARK = 0x5a5f66;
+  const grip = (c = WOOD, h = 0.44) => { const m = WBOX(0.13, h, 0.13, c, { rough: 0.85, metal: 0.05 }); m.position.y = h / 2; return m; };
+  const add = (...ms) => { ms.forEach((m) => g.add(m)); };
+  const addL = (...ms) => { ms.forEach((m) => { m.position.x -= 1.52; g.add(m); }); };   // 左手（镜像）
 
-  // 剑柄 + 配重（战靴）
-  const grip = WBOX(0.13, 0.44, 0.13, 0x4a3428, { rough: 0.85, metal: 0.05 }); grip.position.y = 0.22; g.add(grip);
-  if (got[2]) { const cw = WBOX(0.2, 0.16, 0.2, 0x5a5f66, { metal: 0.6 }); cw.position.y = -0.02; g.add(cw); }
-
-  // 剑格 / 护手（铁甲加宽，狂骨长刺）
-  const guardW = (got[1] ? 0.86 : 0.56) + 0.08 * tier;
-  const gC = got[7] ? 0xf0e4c8 : 0xc0c8d4;
-  const guard = WBOX(guardW, 0.13, 0.22, gC, { metal: 0.55 }); guard.position.y = 0.5; g.add(guard);
-  if (got[7]) for (const sgn of [-1, 1]) {                  // 骨刺
-    const sp = WBOX(0.09, 0.3, 0.09, 0xe4d9c0, { rough: 0.8, metal: 0.05 });
-    sp.position.set(sgn * (guardW / 2 - 0.03), 0.66, 0); sp.rotation.z = sgn * 0.34; g.add(sp);
+  if (t === 0) {                                    // ── 血刃：血色弯刀
+    const bl = { metal: 0.3, rough: 0.4, em: 0x4a0e0a };
+    add(grip(WOOD, 0.48));
+    const guard = WBOX(0.42, 0.12, 0.18, 0xc8a86a, { metal: 0.6 }); guard.position.y = 0.52; add(guard);
+    for (let i = 0; i < 5; i++) {                   // 弧线刀身：5 段递进旋转 ≈ 弧度
+      const seg = WBOX(0.16, 0.42, 0.07, BLOOD, bl);
+      seg.position.set(0.04 * i, 0.78 + i * 0.4, 0);
+      seg.rotation.z = 0.1 + i * 0.13;
+      g.add(seg);
+    }
+  } else if (t === 1) {                             // ── 铁甲：塔盾
+    const sh = WBOX(0.8, 1.5, 0.16, 0x5f7fa8, { metal: 0.5, rough: 0.5, em: 0x101a26 });
+    sh.position.set(0, 0.9, 0.16); add(sh);
+    const rim = WBOX(0.88, 0.14, 0.2, 0xc0c8d4, { metal: 0.7 }); rim.position.set(0, 1.6, 0.16); add(rim);
+    const rim2 = rim.clone(); rim2.position.y = 0.2; add(rim2);
+    const boss = WBOX(0.26, 0.26, 0.12, GOLD, { metal: 0.8, em: 0x6a4a00 }); boss.position.set(0, 0.9, 0.28); add(boss);
+    add(grip(WOOD, 0.3));
+  } else if (t === 2) {                             // ── 战靴：长枪
+    add(grip(WOOD, 0.5));
+    const shaft = WBOX(0.085, 2.5, 0.085, 0x6a4a30, { rough: 0.8, metal: 0.05 }); shaft.position.y = 1.4; add(shaft);
+    const tipA = WBOX(0.2, 0.5, 0.09, STEEL, { metal: 0.35, rough: 0.4, em: 0x1a2230 }); tipA.position.y = 2.85; add(tipA);
+    const tipB = WBOX(0.1, 0.26, 0.09, STEEL, { metal: 0.35, rough: 0.4, em: 0x1a2230 }); tipB.position.y = 3.16; add(tipB);
+    const butt = WBOX(0.14, 0.16, 0.14, DARK, { metal: 0.6 }); butt.position.y = 0.12; add(butt);
+  } else if (t === 3) {                             // ── 火符：火焰法杖
+    add(grip(0x3a2a20, 0.6));
+    const shaft = WBOX(0.11, 1.7, 0.11, 0x5a3a28, { rough: 0.75 }); shaft.position.y = 1.1; add(shaft);
+    const cage = WBOX(0.34, 0.34, 0.34, 0x8a6a3a, { metal: 0.6, rough: 0.5 }); cage.position.y = 2.05; add(cage);
+    const orb = WBOX(0.26, 0.26, 0.26, 0xffb43c, { em: 0x8a4a00, metal: 0.2, rough: 0.2 }); orb.position.y = 2.05; add(orb);
+    for (let i = 0; i < 3; i++) {
+      const fl = new THREE.Mesh(new THREE.PlaneGeometry(0.7 - i * 0.16, 0.7 - i * 0.16),
+        new THREE.MeshBasicMaterial({ color: i % 2 ? 0xffb43c : 0xff6a24, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+      fl.position.y = 2.05; fl.rotation.y = i * 1.05; g.add(fl);
+    }
+  } else if (t === 4) {                             // ── 锐石：水晶匕首
+    add(grip(0x2a2a30, 0.3));
+    const guard = WBOX(0.36, 0.1, 0.14, DARK, { metal: 0.75 }); guard.position.y = 0.34; add(guard);
+    const cbl = { metal: 0.1, rough: 0.15, em: 0x2a7a70 };
+    const b1 = WBOX(0.17, 0.62, 0.1, CRYS, cbl); b1.position.y = 0.72; add(b1);
+    const b2 = WBOX(0.13, 0.5, 0.1, CRYS, cbl); b2.position.y = 1.22; b2.rotation.z = 0.3; add(b2);
+    const b3 = WBOX(0.1, 0.36, 0.1, CRYS, cbl); b3.position.y = 1.5; b3.rotation.z = 0.6; add(b3);
+    // 左手再来一把（锐石 = 双持水晶）
+    const g2 = new THREE.Group(); g2.position.set(-1.52, 0, 0); g2.rotation.set(0, 0, 0.22);
+    const grip2 = grip(0x2a2a30, 0.3); g2.add(grip2);
+    const gd2 = WBOX(0.36, 0.1, 0.14, DARK, { metal: 0.75 }); gd2.position.y = 0.34; g2.add(gd2);
+    const c2 = WBOX(0.17, 1.1, 0.1, CRYS, cbl); c2.position.y = 0.95; g2.add(c2);
+    g.add(g2);
+  } else if (t === 5) {                             // ── 时砂：双刀
+    const mk = (root, sign) => {
+      const gr = grip(WOOD, 0.36); root.add(gr);
+      const gd = WBOX(0.34, 0.1, 0.16, 0xc8a86a, { metal: 0.6 }); gd.position.y = 0.4; root.add(gd);
+      const bl = WBOX(0.13, 1.25, 0.06, 0xe8f0f8, { metal: 0.3, rough: 0.4, em: 0x1a2230 });
+      bl.position.set(sign * 0.03, 1.05, 0); bl.rotation.z = sign * 0.06; root.add(bl);
+    };
+    mk(g, 1);
+    const g2 = new THREE.Group(); g2.position.set(-1.52, 0, 0); g2.rotation.set(0, 0, 0.2); mk(g2, -1); g.add(g2);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.55, 0.03, 6, 24),
+      new THREE.MeshBasicMaterial({ color: GOLD, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false }));
+    ring.rotation.x = Math.PI / 2; ring.position.y = 0.75; g.add(ring); weaponSpin.push(ring);
+  } else if (t === 6) {                             // ── 护符：圣杖
+    add(grip(0x3a3220, 0.56));
+    const shaft = WBOX(0.1, 1.5, 0.1, 0x6a5a3a, { rough: 0.7, metal: 0.2 }); shaft.position.y = 1.0; add(shaft);
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.34, 0.055, 6, 22),
+      new THREE.MeshStandardMaterial({ color: GOLD, roughness: 0.3, metalness: 0.85, emissive: 0x6a4a00 }));
+    ring.position.y = 1.95; add(ring);
+    const gem = WBOX(0.18, 0.18, 0.1, 0xfff0b0, { em: 0x8a6a00, metal: 0.4, rough: 0.1 }); gem.position.y = 1.95; add(gem);
+    const orb2 = WBOX(0.34, 0.1, 0.1, GOLD, { metal: 0.8 }); orb2.position.y = 1.95; add(orb2);
+  } else if (t === 7) {                             // ── 狂骨：骨镰
+    add(grip(BONE, 0.7));
+    const shaft = WBOX(0.12, 2.1, 0.12, 0xd8cbb0, { rough: 0.8, metal: 0.05, em: 0x1a1a14 }); shaft.position.y = 1.25; add(shaft);
+    for (let i = 0; i < 5; i++) {                   // 骨刃：5 段弧
+      const seg = WBOX(0.16, 0.56, 0.1, BONE, { rough: 0.7, metal: 0.05, em: 0x1a1a14 });
+      seg.position.set(0.06 + i * 0.2, 2.52 - i * 0.42, 0);
+      seg.rotation.z = -0.5 - i * 0.22;
+      g.add(seg);
+    }
+    const knob = WBOX(0.26, 0.26, 0.26, 0xd8cbb0, { rough: 0.75 }); knob.position.y = 2.5; add(knob);
+  } else {                                          // ── 默认：素钢短剑
+    const bl = { metal: 0.35, rough: 0.42, em: 0x1a2230 };
+    add(grip(), (() => { const m = WBOX(0.56, 0.13, 0.22, 0xc0c8d4, { metal: 0.55 }); m.position.y = 0.5; return m; })());
+    const BL = 1.0, BW = 0.17, bladeY = 0.5 + 0.065 + BL / 2;
+    const blade = WBOX(BW, BL, 0.075, STEEL, bl); blade.position.y = bladeY; add(blade);
+    const tip = WBOX(BW * 0.66, 0.26, 0.075, STEEL, bl); tip.position.y = bladeY + BL / 2 + 0.1; add(tip);
   }
 
-  // 剑身 + 剑尖
-  const bladeY = 0.5 + 0.065 + BL / 2;
-  const bl = { metal: 0.35, rough: 0.42, em: emis || 0x1a2230 };   // 自带微发光，保证任何角度都看得见
-  const blade = WBOX(BW, BL, 0.075, metal, bl); blade.position.y = bladeY; g.add(blade);
-  const tip = WBOX(BW * 0.66, 0.26, 0.075, metal, bl); tip.position.y = bladeY + BL / 2 + 0.1; g.add(tip);
-  // 血槽 / 铭纹（装备多了出现）
-  if (n >= 3) { const groove = WBOX(BW * 0.3, BL * 0.8, 0.085, got[0] ? 0xff8a7a : 0xf0f6ff, { em: got[0] ? 0x501010 : 0x304050, metal: 0.6 }); groove.position.y = bladeY; g.add(groove); }
-
-  // 锐石：剑格嵌宝石
-  if (got[4]) { const gem = WBOX(0.16, 0.16, 0.16, 0x7fe3d0, { em: 0x2a7a70, metal: 0.9, rough: 0.1 }); gem.position.set(0, 0.5, 0.14); g.add(gem); const gem2 = gem.clone(); gem2.position.z = -0.14; g.add(gem2); }
-
-  // 火符：剑身缠火焰（加色面片）
-  if (got[3]) for (let i = 0; i < 5; i++) {
-    const fl = new THREE.Mesh(new THREE.PlaneGeometry(BW * 1.5, BL * 0.22),
-      new THREE.MeshBasicMaterial({ color: i % 2 ? 0xffb43c : 0xff6a24, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-    fl.position.set(0, 0.85 + i * (BL * 0.19), 0); fl.rotation.y = Math.PI / 2; g.add(fl);
-  }
-  // 时砂：环绕光环（慢转）
-  if (got[5]) {
-    const ring = new THREE.Mesh(new THREE.TorusGeometry(0.5 + 0.05 * tier, 0.035, 6, 26),
-      new THREE.MeshBasicMaterial({ color: 0xd8b96a, transparent: true, opacity: 0.75, blending: THREE.AdditiveBlending, depthWrite: false }));
-    ring.rotation.x = Math.PI / 2; ring.position.y = 0.5; g.add(ring);
-    weaponSpin.push(ring);
-  }
-  // 护符：护手下挂坠
-  if (got[6]) {
-    const str = WBOX(0.03, 0.26, 0.03, 0x8a6a3a, { metal: 0.5 }); str.position.set(-0.24, 0.34, 0); g.add(str);
-    const charm = WBOX(0.14, 0.14, 0.05, 0xffd06a, { em: 0x6a4a00, metal: 0.8 }); charm.position.set(-0.24, 0.19, 0); g.add(charm);
-  }
-  // 满身装备：剑身外扩气场
-  if (n >= 6) {
-    const aura = new THREE.Mesh(new THREE.RingGeometry(0.55, 1.15, 24),
-      new THREE.MeshBasicMaterial({ color: got[0] ? 0xff5a4a : 0x9fe8ff, transparent: true, opacity: 0.16, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
-    aura.rotation.x = -Math.PI / 2;
-    aura.position.y = -0.86;        // 武器组挂在手上（hero 局部 y=0.86）→ 减掉才是地面
-    g.add(aura);
-    weaponSpin.push(aura);
-  }
-
+  // 收集越多 → 整体越大（同一把武器也在长）
+  g.scale.setScalar(1 + 0.028 * Math.min(n, 12));
   heroMesh.add(g);
   weaponGrp = g;
 }
@@ -386,6 +419,8 @@ heroRing.rotation.x = -Math.PI / 2;
 scene.add(heroRing);
 
 if (GEAR) for (let k = 0; k < Math.min(GEAR, EQUIP_COUNT); k++) equipGot[k] = 1;
+const WEP = QS.get('wep');                   // ?wep=0..7：强制显示第 N 种武器（QA/宣传图）
+if (WEP !== null) { for (let k = 0; k <= +WEP; k++) equipGot[k] = 1; S.weaponType = +WEP; }
 buildWeapon();                       // 初始短剑（0 件装备）；?gear=N 预置几件
 
 // 普攻扇形（只覆盖朝向 ±70°，视觉上就要跟判定一致 —— 否则玩家不知道背面是盲区）
@@ -818,7 +853,7 @@ function restart() {
   bossAI.reset();
   S.bossKilled = 0;
   S.comboT = 9999; S.comboN = 0;
-  equipGot.fill(0); buildWeapon();
+  equipGot.fill(0); S.weaponType = -1; buildWeapon();
   game.crowd.scale.fill(0);
   game.crowd.reset();
   game.crowd.spawnArmy();
@@ -1236,8 +1271,10 @@ function updateDrops(dt) {
     d.g.rotation.y += dt * 1.4;
     if (Math.hypot(d.x - hero.x, d.z - hero.z) < 1.7) {
       d.e.apply();
-      equipGot[EQUIP.indexOf(d.e)] += 1;
-      buildWeapon();                       // 武器随装备成长（v2.12）
+      const ei = EQUIP.indexOf(d.e);
+      equipGot[ei] += 1;
+      S.weaponType = ei;                   // 换武器外观（v2.13：8 种装备 = 8 种武器）
+      buildWeapon();
       S.gear++;
       toast(`${d.e.icon} <b>${d.e.name}</b> — ${d.e.desc}`);
       SFX.level();
@@ -1654,9 +1691,9 @@ function frame(now) {
     12.5 + (Math.random() - 0.5) * sh, hero.z + 15 + (Math.random() - 0.5) * sh);
   if (CLOSEUP) {                       // ?closeup=1：绕人物缓慢环绕（做宣传图用）
     const a = S.t * 0.22;
-    camera.position.set(hero.x + Math.sin(a) * 4.2, 2.4, hero.z + Math.cos(a) * 4.2);
+    camera.position.set(hero.x + Math.sin(a) * 5.4, 2.9, hero.z + Math.cos(a) * 5.4);
   }
-  camera.lookAt(hero.x, 1.45, hero.z);
+  camera.lookAt(hero.x, CLOSEUP ? 1.9 : 1.45, hero.z);
   // 出生波次从镜头背后（+Z）来，所以 cam.yaw 固定 0
   game.cam.yaw = 0;
   focus.set(hero.x, 1.3, hero.z);
