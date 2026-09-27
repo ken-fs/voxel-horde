@@ -136,7 +136,7 @@
   #again { margin-top: 20px; font: inherit; font-size: 15px; padding: 12px 30px; border-radius: 999px; border: 0;
            background: #d0402c; color: #fff; cursor: pointer; }
   #again:hover { background: #e2503c; }
-  #hint { left: 16px; bottom: 14px; max-width: calc(50% - 215px); font-size: 11.5px; color: #8fa6b4; line-height: 1.6; }
+  #hint { left: 16px; bottom: 122px; max-width: 46vw; font-size: 11.5px; color: #8fa6b4; line-height: 1.6; }
   #hint b { color: #7fd1c8; }
 
   html, body { touch-action: none; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
@@ -213,16 +213,17 @@
 <div id="boss" class="ui"><div class="lbl">BOSS</div><div class="bar"><i id="bossF" style="width:100%"></i></div></div>
 <div id="banner"></div>
 <div id="hint" class="ui">
-  <span id="hint-kb"><b>WASD</b> move · <b>Space</b> Whirlwind · <b>Shift</b> Dash · <b>E</b> ultimate · <b>Q</b> switch element<br>
+  <span id="hint-kb"><b>WASD</b> move · <b>Q</b> Whirlwind · <b>E</b> Dash · <b>R</b> ultimate · <b>F</b> switch element · <b>mouse L/R</b> = Whirlwind/Dash<br>
   Your swing only covers the arc in front — turn to face them. Whirlwind hits all around.</span>
   <span id="hint-touch" style="display:none"><b>Drag on the left</b> to move · tap the cards to use skills · attacks are automatic<br>Tap <b>⇄ Switch</b> to change your ultimate element<br>
   Your swing only covers the arc in front — turn to face them. Whirlwind hits all around.</span>
 </div>
 <div id="skills" class="ui">
-  <div class="sk ready" id="sk-spin"><div class="fill"></div><div class="k">SPACE</div><div class="n">Whirlwind</div></div>
-  <div class="sk ready" id="sk-dash"><div class="fill"></div><div class="k">SHIFT</div><div class="n">Dash</div></div>
-  <div class="sk ready fire" id="sk-nova"><div class="fill"></div><div class="k">E · Q switch</div><div class="n">Flame Lance</div></div>
-  <div class="sk" id="sk-cycle" title="Switch ultimate"><div class="k">Q</div><div class="n">⇄ &nbsp;Switch</div></div>
+  <div class="sk ready" id="sk-spin"><div class="fill"></div><div class="k">Q · SPACE</div><div class="n">Whirlwind</div></div>
+  <div class="sk ready" id="sk-dash"><div class="fill"></div><div class="k">E · SHIFT</div><div class="n">Dash</div></div>
+  <div class="sk ready fire" id="sk-nova"><div class="fill"></div><div class="k">R</div><div class="n">Flame Lance</div></div>
+  <div class="sk" id="sk-cycle" title="Switch ultimate"><div class="k">F</div><div class="n">⇄ &nbsp;Switch</div></div>
+
 </div>
 <div id="stick"><div id="stickKnob"></div></div>
 <div id="buffs" class="ui"></div>
@@ -289,7 +290,7 @@
   // 提示文案按设备切换（此脚本早于 module 运行，body 的 touch class 还没加上）
   if (!matchMedia('(pointer: coarse)').matches) {
     document.querySelector('#loading .lg-tip').innerHTML =
-      '<b>WASD</b> move · <b>Space</b> Whirlwind · <b>Shift</b> Dash · <b>E</b> ultimate · <b>Q</b> switch element<br>Attacks fire on their own, but only in front of you';
+      '<b>WASD</b> move · <b>Q</b> Whirlwind · <b>E</b> Dash · <b>R</b> ultimate · <b>F</b> switch element · <b>mouse L/R</b> = Whirlwind/Dash<br>Attacks fire on their own, but only in front of you';
   }
   fetch('../../vendor/three/three.module.js').then(function (r) {
     var len = r.headers.get('content-length');
@@ -754,12 +755,25 @@ addEventListener('keydown', (e) => {
   audioReady();                       // 首次按键解锁音频
   keys.add(e.code);
   if (S.paused) { const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code); if (i >= 0) pickUpgrade(i); return; }
-  if (e.code === 'Space') { e.preventDefault(); doSpin(); }
-  if (e.code === 'ShiftRight' || e.code === 'ShiftLeft') doDash();
-  if (e.code === 'KeyE') doNova();
-  if (e.code === 'KeyQ') cycleUlt();
+  // v2.19 键位重排：QWER 那排（W 被移动占用，所以实际是 Q/E/R/F）+ 保留旧键
+  //   Q 旋风斩   E 冲刺   R 终极技   F 切换属性
+  //   Space 旋风斩（旧）· Shift 冲刺（旧）· 鼠标左右键也给技能
+  if (e.code === 'Space' || e.code === 'KeyQ') { e.preventDefault(); doSpin(); }
+  if (e.code === 'ShiftRight' || e.code === 'ShiftLeft' || e.code === 'KeyE') doDash();
+  if (e.code === 'KeyR') doNova();
+  if (e.code === 'KeyF') cycleUlt();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
+
+// 鼠标也能放技能（ARPG 习惯）。⚠️ 点在 UI 上（技能卡、升级卡、按钮）不算放技能。
+const UI_HIT = (t) => t && t.closest && t.closest('#levelup, #over, #consent, #skills, button, .ui');
+addEventListener('mousedown', (e) => {
+  if (S.paused || S.dead || UI_HIT(e.target)) return;
+  if (e.button === 0) { audioReady(); doSpin(); }
+  if (e.button === 2) { audioReady(); doDash(); }
+});
+addEventListener('contextmenu', (e) => { if (!UI_HIT(e.target)) e.preventDefault(); });   // 右键留给冲刺
+addEventListener('wheel', (e) => { if (!S.paused && !S.dead && !UI_HIT(e.target)) cycleUlt(e.deltaY > 0 ? 1 : -1); }, { passive: true });
 
 // ================================================================ 触屏（v2.14）
 // 设计：① 左半屏任意位置按下 = 浮动摇杆（摇杆出现在手指处，比固定摇杆好用）
@@ -2441,7 +2455,7 @@ window.__diag = () => {
 };
 window.__test = {
   damageHero, camera, equipGot, buildWeapon, obstacles, potions, breakObstacle, spawnPotion,
-  ult, cycleUlt, ULTS, boltPool, frostRings, frozenM, tickFrozen, doNova, scene, camera, get weaponGrp() { return weaponGrp; }, spin: doSpin, dash: doDash, nova: doNova, spawnMonster, spawnDrop, monsters, drops, bossAI, telegraph, hurt, COMBO,
+  ult, cycleUlt, ULTS, boltPool, frostRings, frozenM, tickFrozen, doNova, scene, camera, radius, dmg, CFG, get weaponGrp() { return weaponGrp; }, spin: doSpin, dash: doDash, nova: doNova, spawnMonster, spawnDrop, monsters, drops, bossAI, telegraph, hurt, COMBO,
   get lairs() { return lairs; },
   killFirstBoss: () => { S.firstBossDown = true; }, tick: simStep, levelUp, damageHero, spawnBoss,
   stand: () => { keys.clear(); },          // 清空输入 → 静立不动（用于验证"站桩是否会死"）
