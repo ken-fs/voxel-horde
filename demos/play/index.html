@@ -341,7 +341,10 @@ const STEP = 1 / 60;
 const EQUIP_COUNT = 8;
 const CFG = {
   heroSpeed: 7.6,
-  atkRadius: 2.5, atkDamage: 20, atkInterval: 32,
+  // v2.18：2.5 → 3.4。玩家反馈「范围太小，打不死小兵」——
+  // 实测小兵的出手距离是 1.9，玩家半径 2.5 时只能蹭到最内层那几个，
+  // 而兵潮是环形包围，所以会有「被围住却打不到人」的感觉。
+  atkRadius: 3.4, atkDamage: 20, atkInterval: 32,
   atkArc: 0.78 * Math.PI,                             // 普攻只打朝向 ±70°（关键：背面敌人能打到你 → 必须走位）
   heroHpMax: 100,
   waveLen: 1200,                                      // 20 秒一波
@@ -384,7 +387,8 @@ Object.assign(CROWD, {
   grace: [60, 120], rally: [1, 3],
   engaged: 130,
   waveEvery: [30, 70],
-  hp: 34, captainHp: 90, officerHp: 620,
+  hp: 27, captainHp: 78, officerHp: 620,     // v2.18：小兵 34 → 27（玩家反馈前期太肉）
+
 });
 
 // ================================================================ 音效（零素材，WebAudio 现场合成）
@@ -1124,8 +1128,8 @@ function pickUpgrade(i) {
 // ================================================================ 波次
 function applyWave() {
   const k = S.wave - 1;
-  CROWD.hp = Math.round(BASE.hp * (1 + 0.22 * k));
-  CROWD.captainHp = Math.round(BASE.captain * (1 + 0.22 * k));
+  CROWD.hp = Math.round(BASE.hp * (1 + 0.19 * k));      // v2.18：0.22 → 0.19（前期更轻）
+  CROWD.captainHp = Math.round(BASE.captain * (1 + 0.19 * k));
   CROWD.officerHp = Math.round(BASE.officer * (1 + 0.18 * k));
   CROWD.engaged = Math.min(190, BASE.engaged + 14 * k);
   CROWD.waveEvery = [Math.max(18, BASE.waveEvery[0] - 3 * k), Math.max(40, BASE.waveEvery[1] - 7 * k)];
