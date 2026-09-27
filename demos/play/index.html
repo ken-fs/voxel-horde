@@ -2,7 +2,7 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <title>Voxel Horde — v2（主动技能 + Boss + 打击感）</title>
 <style>
   html, body { margin: 0; height: 100%; background: #0b0f14; overflow: hidden; font-family: ui-monospace, Menlo, monospace; }
@@ -73,6 +73,38 @@
   #again:hover { background: #e2503c; }
   #hint { left: 16px; bottom: 14px; font-size: 11.5px; color: #8fa6b4; line-height: 1.6; }
   #hint b { color: #7fd1c8; }
+
+  html, body { touch-action: none; overscroll-behavior: none; -webkit-tap-highlight-color: transparent; }
+  /* ── 触屏（v2.14）：浮动摇杆 + 技能卡点按 */
+  #stick { position: fixed; width: 138px; height: 138px; margin: -69px 0 0 -69px; border-radius: 50%;
+           background: #0d151bbb; border: 2px solid #2c3f4d; display: none; pointer-events: none; z-index: 30; }
+  #stick.on { display: block; }
+  #stickKnob { position: absolute; left: 50%; top: 50%; width: 58px; height: 58px; margin: -29px 0 0 -29px;
+               border-radius: 50%; background: #7fd1c866; border: 2px solid #9ff5e6; }
+  body.touch .sk { pointer-events: auto; cursor: pointer; }
+  body.touch .sk:active { background: #1b2a36e6; }
+  body.touch .sk .k { font-size: 10px; color: #7fd1c8; }
+  /* ── 手机竖屏布局（v2.14）：瘦身顶部 + 技能卡靠右下 + 提示移到卡片上方 */
+  @media (max-width: 640px) {
+    #top { padding: 6px 8px; gap: 7px; font-size: 9.5px; flex-wrap: wrap; line-height: 1.35;
+           padding-top: calc(6px + env(safe-area-inset-top)); }
+    #top span { white-space: nowrap; }
+    #bars { left: 8px; top: calc(30px + env(safe-area-inset-top)); width: min(52vw, 210px); }
+    #stats { right: 8px; top: calc(30px + env(safe-area-inset-top)); font-size: 9.5px; line-height: 1.45;
+             max-width: 42vw; background: #0b0f14c0; border-radius: 6px; padding: 3px 6px; }
+    #boss { top: calc(74px + env(safe-area-inset-top)); width: 88vw; }
+    #skills { left: auto; right: 8px; transform: none; bottom: calc(10px + env(safe-area-inset-bottom)); gap: 5px; }
+    .sk { width: 84px; padding: 7px 8px; border-radius: 9px; }
+    .sk .k { font-size: 9px; }
+    .sk .n { font-size: 11px; margin-top: 1px; }
+    #hint { left: 8px; right: 8px; bottom: calc(112px + env(safe-area-inset-bottom));
+            font-size: 10px; line-height: 1.5; text-align: center; opacity: .8; }
+    #toast { bottom: calc(140px + env(safe-area-inset-bottom)); font-size: 13px; }
+    #levelup .box, #over .box { width: 92vw; padding: 14px; }
+    #cards { grid-template-columns: 1fr; }
+    #cards .card { padding: 9px 11px; }
+    #cards .card .d { font-size: 11px; }
+  }
 </style>
 </head>
 <body>
@@ -98,14 +130,17 @@
 <div id="boss" class="ui"><div class="lbl">BOSS</div><div class="bar"><i id="bossF" style="width:100%"></i></div></div>
 <div id="banner"></div>
 <div id="hint" class="ui">
-  <b>WASD</b> 移动 · <b>Space</b> 旋风斩 · <b>Shift</b> 冲刺（含无敌帧）· 普攻自动<br>
-  普攻只打身前扇形 —— 背对敌人会被打，必须走位/转身（旋风斩才是 360°）
+  <span id="hint-kb"><b>WASD</b> 移动 · <b>Space</b> 旋风斩 · <b>Shift</b> 冲刺（含无敌帧）· 普攻自动<br>
+  普攻只打身前扇形 —— 背对敌人会被打，必须走位/转身（旋风斩才是 360°）</span>
+  <span id="hint-touch" style="display:none"><b>左半屏拖动</b>移动 · 点右下技能卡放技能 · 普攻自动<br>
+  普攻只打身前扇形 —— 背对敌人会被打，必须走位（旋风斩才是 360°）</span>
 </div>
 <div id="skills" class="ui">
   <div class="sk ready" id="sk-spin"><div class="fill"></div><div class="k">SPACE</div><div class="n">旋风斩</div></div>
   <div class="sk ready" id="sk-dash"><div class="fill"></div><div class="k">SHIFT</div><div class="n">冲刺</div></div>
   <div class="sk locked fire" id="sk-nova"><div class="fill"></div><div class="k">E</div><div class="n">烈焰冲击</div></div>
 </div>
+<div id="stick"><div id="stickKnob"></div></div>
 <div id="toast"></div>
 
 <div class="ui" id="levelup"><div class="box">
@@ -554,6 +589,66 @@ addEventListener('keydown', (e) => {
   if (e.code === 'KeyE') doNova();
 });
 addEventListener('keyup', (e) => keys.delete(e.code));
+
+// ================================================================ 触屏（v2.14）
+// 设计：① 左半屏任意位置按下 = 浮动摇杆（摇杆出现在手指处，比固定摇杆好用）
+//       ② 摇杆方向直接映射到现有的 4 个方向键（保留 8 向 + 键盘手感一致，零新输入通路）
+//       ③ 右下角技能卡点按 = 放技能（复用已有的 doSpin/doDash/doNova + 冷却显示）
+const TOUCH = matchMedia('(pointer: coarse)').matches || 'ontouchstart' in window || QS.get('touch') === '1';
+if (TOUCH) {
+  document.body.classList.add('touch');
+  addEventListener('DOMContentLoaded', () => {
+    document.getElementById('hint-kb').style.display = 'none';
+    document.getElementById('hint-touch').style.display = '';
+    if (TOUCH) setTimeout(() => { const h = document.getElementById('hint'); h.style.transition = 'opacity .8s'; h.style.opacity = '0'; }, 11000);
+  });
+}
+const stickEl = document.getElementById('stick'), knobEl = document.getElementById('stickKnob');
+const STICK_R = 48;
+let stickId = null, stickOx = 0, stickOy = 0;
+const MOVE_KEYS = ['KeyW', 'KeyA', 'KeyS', 'KeyD'];
+
+function stickMove(dx, dy) {
+  const l = Math.hypot(dx, dy);
+  const k = Math.min(1, l / STICK_R);
+  knobEl.style.transform = l > 0.01 ? `translate(${dx / l * k * STICK_R}px, ${dy / l * k * STICK_R}px)` : '';
+  MOVE_KEYS.forEach((kk) => keys.delete(kk));
+  if (l < STICK_R * 0.28) return;                       // 死区
+  // 屏幕坐标（y 向下）→ 8 扇区：0=右 1=右下 2=下 3=左下 4=左 5=左上 6=上 7=右上
+  const seg = (Math.round(Math.atan2(dy, dx) / (Math.PI / 4)) + 8) & 7;
+  const map = [['KeyD'], ['KeyD', 'KeyS'], ['KeyS'], ['KeyA', 'KeyS'],
+               ['KeyA'], ['KeyA', 'KeyW'], ['KeyW'], ['KeyD', 'KeyW']];
+  map[seg].forEach((kk) => keys.add(kk));
+}
+function endStick(e) {
+  for (const t of e.changedTouches) if (t.identifier === stickId) {
+    stickId = null; stickEl.classList.remove('on'); knobEl.style.transform = '';
+    MOVE_KEYS.forEach((kk) => keys.delete(kk));
+  }
+}
+addEventListener('touchstart', (e) => {
+  audioReady();
+  for (const t of e.changedTouches) {
+    if (stickId === null && t.clientX < innerWidth * 0.5) {
+      stickId = t.identifier; stickOx = t.clientX; stickOy = t.clientY;
+      stickEl.style.left = t.clientX + 'px'; stickEl.style.top = t.clientY + 'px';
+      stickEl.classList.add('on'); stickMove(0, 0);
+    }
+  }
+}, { passive: false });
+addEventListener('touchmove', (e) => {
+  for (const t of e.changedTouches) if (t.identifier === stickId) {
+    e.preventDefault(); stickMove(t.clientX - stickOx, t.clientY - stickOy);
+  }
+}, { passive: false });
+addEventListener('touchend', endStick);
+addEventListener('touchcancel', endStick);
+
+// 技能卡点按（挡住冒泡，避免同时触发摇杆）
+for (const [id, fn] of [['sk-spin', doSpin], ['sk-dash', doDash], ['sk-nova', doNova]]) {
+  const el = document.getElementById(id);
+  el.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); audioReady(); fn(); }, { passive: false });
+}
 
 // ================================================================ 伤害 / 技能
 function damageHero(mult = 1, heavy = false) {
