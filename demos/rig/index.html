@@ -1,0 +1,172 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>rig.js 抽取 demo — 骨架 + 姿势采样 + 2-bone IK</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d1117; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; left: 16px; bottom: 14px; color: #c9d8e2;
+    font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-shadow: 0 1px 2px #000a; pointer-events: none;
+  }
+  #hud b { color: #7fd1c8; }
+  #hud .dim { color: #64798a; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="hud">
+  <b>rig.js</b> — 从 voxel-musou 抽出的独立子系统（364 行，只依赖 THREE）<br>
+  骨骼可视化：球 = 关节 · 线 = 骨 · 长杆 = weapon 关节（不挂在手上）<br>
+  动画 = <code>clip()</code> 关键帧 → <code>sampleClip()</code> 采样 → <code>rig.apply()</code> 解 IK<br>
+  <span class="dim">手臂/腿的末端由 2-bone IK 反解，手会沿杆滑动而不是浮空</span>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { createRig, P, clip, sampleClip, STANCE, DIM, CH, HERO_SCALE } from '../../lib/rig.js';
+
+// ---------------------------------------------------------------- 渲染器 / 场景
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x0d1117);
+scene.fog = new THREE.Fog(0x0d1117, 8, 22);
+
+const camera = new THREE.PerspectiveCamera(40, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(2.9, 1.75, 3.1);
+
+scene.add(new THREE.HemisphereLight(0xa8c8ff, 0x141a20, 0.9));
+const key = new THREE.DirectionalLight(0xfff2dd, 2.0);
+key.position.set(3, 6, 4);
+key.castShadow = true;
+scene.add(key);
+
+// 地面 + 网格
+const ground = new THREE.Mesh(
+  new THREE.CircleGeometry(6, 48),
+  new THREE.MeshStandardMaterial({ color: 0x1b2430, roughness: 0.95 })
+);
+ground.rotation.x = -Math.PI / 2;
+ground.receiveShadow = true;
+scene.add(ground);
+const grid = new THREE.GridHelper(12, 24, 0x2b3a4a, 0x1f2a36);
+grid.position.y = 0.001;
+scene.add(grid);
+
+// ---------------------------------------------------------------- 抽出模块：建骨架
+const rig = createRig();
+scene.add(rig.root);
+
+// 关节可视化：每个 joint 一个球
+const jointMat = new THREE.MeshStandardMaterial({ color: 0x7fd1c8, roughness: 0.4, emissive: 0x1b4a46 });
+const tipMat = new THREE.MeshStandardMaterial({ color: 0xffb454, roughness: 0.4, emissive: 0x4a2f10 });
+const spheres = {};
+for (const [name, joint] of Object.entries(rig.joints)) {
+  const isTip = /hand|foot|head|weapon/.test(name);
+  const s = new THREE.Mesh(new THREE.SphereGeometry(isTip ? 0.042 : 0.03, 14, 10), isTip ? tipMat : jointMat);
+  s.castShadow = true;
+  scene.add(s);
+  spheres[name] = s;
+}
+
+// 骨线：父 → 子
+const BONES = [
+  ['hips', 'spine'], ['spine', 'chest'], ['chest', 'neck'], ['neck', 'head'],
+  ['chest', 'shoulderL'], ['shoulderL', 'upperArmL'], ['upperArmL', 'foreArmL'], ['foreArmL', 'handL'],
+  ['chest', 'shoulderR'], ['shoulderR', 'upperArmR'], ['upperArmR', 'foreArmR'], ['foreArmR', 'handR'],
+  ['hips', 'thighL'], ['thighL', 'shinL'], ['shinL', 'footL'],
+  ['hips', 'thighR'], ['thighR', 'shinR'], ['shinR', 'footR'],
+];
+const boneGeo = new THREE.BufferGeometry();
+boneGeo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(BONES.length * 6), 3));
+const boneLines = new THREE.LineSegments(boneGeo, new THREE.LineBasicMaterial({ color: 0x4f7f9a }));
+scene.add(boneLines);
+
+// 长杆：挂在 weapon 关节上（它不挂在手上 —— 手由 IK 反解贴到杆上）
+const spear = new THREE.Mesh(
+  new THREE.CylinderGeometry(0.014, 0.014, 2.2, 8),
+  new THREE.MeshStandardMaterial({ color: 0x9fb6c4, roughness: 0.5, metalness: 0.3 })
+);
+spear.rotation.x = Math.PI / 2;      // 杆沿 weapon 的局部 +Z
+spear.position.z = 2.2 / 2 - 0.7;    // 原点在握把处
+spear.castShadow = true;
+rig.joints.weapon.add(spear);
+
+// ---------------------------------------------------------------- 抽出模块：姿势 + 剪辑
+// 三个关键姿势（角度写度数，P() 内部转弧度）
+const A = P();                                                   // STANCE 默认持枪站姿
+const B = P({                                                    // 举枪过头
+  hips: [0, 1.05, 0], hipsR: [0, -12, 0], spine: [-4, 10, 0], chest: [-6, 12, 0], head: [-6, 4, 0],
+  footL: [0.18, 0.08, 0.32, 0, 18], footR: [-0.22, 0.08, -0.3, 0, -34],
+  spear: [-0.1, 1.5, -0.1, 6, 118, 88], gripR: 0.1, gripL: 0.62,
+});
+const C = P({                                                    // 下蹲蓄力
+  hips: [0, 0.66, 0.05], hipsR: [6, -30, 0], spine: [14, 8, 0], chest: [10, 6, 0], head: [-8, 6, 0],
+  footL: [0.24, 0.08, 0.30, 0, 22], footR: [-0.28, 0.08, -0.30, 0, -40],
+  spear: [-0.3, 0.72, 0.12, 46, 12, 0], gripR: -0.1, gripL: 0.42,
+});
+const clipAB = clip([[0, A, 'io'], [0.34, B, 'out'], [0.62, C, 'in'], [1, A, 'io']], true);
+
+const pose = new Float32Array(40);
+const pos = new THREE.Vector3(0, 0, 0);
+const _v = new THREE.Vector3();
+
+// ---------------------------------------------------------------- 循环
+let t = 0;
+function frame() {
+  t = (t + 0.0035) % 1;
+  sampleClip(clipAB, t, pose);        // 采样（Catmull-Rom）
+  rig.apply(pose, pos, 0.5);          // 解 FK + IK（手贴杆、脚贴地）
+
+  // 同步可视化
+  for (const [name, joint] of Object.entries(rig.joints)) {
+    joint.getWorldPosition(_v);
+    spheres[name].position.copy(_v);
+  }
+  const p = boneGeo.attributes.position.array;
+  BONES.forEach(([a, b], i) => {
+    spheres[a].getWorldPosition(_v); p[i * 6 + 0] = _v.x; p[i * 6 + 1] = _v.y; p[i * 6 + 2] = _v.z;
+    spheres[b].getWorldPosition(_v); p[i * 6 + 3] = _v.x; p[i * 6 + 4] = _v.y; p[i * 6 + 5] = _v.z;
+  });
+  boneGeo.attributes.position.needsUpdate = true;
+
+  camera.lookAt(0, 1.05, 0);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+frame();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// headless 验证
+window.__ready = true;
+window.__stats = () => {
+  const w = new THREE.Vector3();
+  rig.joints.handR.getWorldPosition(w);
+  const g = new THREE.Vector3();
+  rig.joints.weapon.getWorldPosition(g);
+  const dir = new THREE.Vector3(0, 0, 1).applyQuaternion(rig.joints.weapon.getWorldQuaternion(new THREE.Quaternion()));
+  const s = w.clone().sub(g).dot(dir);                      // 右手在杆上的投影偏移
+  return {
+    t: +t.toFixed(3),
+    headY: +rig.joints.head.getWorldPosition(new THREE.Vector3()).y.toFixed(3),
+    handR_on_shaft_offset: +s.toFixed(3),                    // 应在 0 附近 → 手确实贴在杆上
+    joints: Object.keys(rig.joints).length,
+  };
+};
+</script>
+</body>
+</html>

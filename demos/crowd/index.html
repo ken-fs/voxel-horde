@@ -1,0 +1,176 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>crowd/ 抽取 demo — 300 单位群体渲染 + 姿态混合</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #10161b; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; left: 16px; bottom: 14px; color: #cfe3ea;
+    font: 12px/1.7 ui-monospace, Menlo, monospace; text-shadow: 0 1px 2px #000a; pointer-events: none;
+  }
+  #hud b { color: #7fd1c8; }
+  #hud .dim { color: #6b818c; }
+  #stats {
+    position: fixed; right: 16px; top: 14px; color: #cfe3ea; text-align: right;
+    font: 12px/1.6 ui-monospace, Menlo, monospace; text-shadow: 0 1px 2px #000a; pointer-events: none;
+  }
+  #stats em { color: #ffb454; font-style: normal; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="hud">
+  <b>crowd/</b> — 从 voxel-musou 抽出的独立子系统（1,352 行 / 6 文件）<br>
+  左：<code>crowd.js</code> 行为模拟（状态机 + 小队编队 + 攻击令牌）<br>
+  右：<code>view.js</code> InstancedMesh 渲染（每兵一小段骨骼 + 姿态混合）<br>
+  <span class="dim">解耦改动 3 处：WALL_Z / HUD_TAG_R / COMBAT.tintFrames 内联</span>
+</div>
+<div id="stats">
+  <div>单位 <em id="s-units">0</em> · 交战 <em id="s-engaged">0</em></div>
+  <div>英雄 HP <em id="s-hp">100</em></div>
+  <div>帧 <em id="s-frame">0</em></div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { createCrowd, ST } from '../../lib/crowd.js';
+import { createCrowdView } from '../../lib/view.js';
+import { sculpt, boxesGeometry } from '../../lib/voxel.js';
+
+const GRUNTS = 300;
+
+// ---------------------------------------------------------------- 最小 game 存根
+// crowd.js 只读这 6 个字段：frame / freeze / hero.{x,z,hp} / cam.yaw / combat.enemyStrike
+// view.js 只读 hero.{x,z} + frame。其余（HUD、镜头跟随）都在 demo 里自己写。
+const game = {
+  frame: 0,
+  freeze: 0,
+  hero: { x: 0, y: 0, z: 0, hp: 100, hpMax: 100, yaw: 0 },
+  cam: { yaw: 0 },
+  combat: {
+    // 敌兵挥中时被调用 —— 原版里这是英雄的受伤/击退入口，这里只扣血
+    enemyStrike(i) { game.hero.hp = Math.max(0, game.hero.hp - 1.2); },
+  },
+  crowd: null,
+};
+
+// ---------------------------------------------------------------- 场景
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x1a1f26);
+scene.fog = new THREE.Fog(0x1a1f26, 26, 78);
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 300);
+camera.position.set(0, 9, 17);
+
+scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x2a2118, 0.7));
+const sun = new THREE.DirectionalLight(0xffe3b0, 2.2);
+sun.position.set(8, 12, 6);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -22, right: 22, top: 22, bottom: -22, near: 1, far: 60 });
+scene.add(sun);
+
+const ground = new THREE.Mesh(boxesGeometry([{ s: [90, 0.5, 90], p: [0, -0.25, 0], c: 0x3d3a32 }]),
+  new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 }));
+ground.receiveShadow = true;
+scene.add(ground);
+
+// 英雄替身：一个体素小人（真项目里换成你的角色 + rig.js）
+const heroMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, flatShading: true });
+const heroMesh = new THREE.Mesh(sculpt([
+  { a: [-0.5, 0, -0.35], b: [0.5, 0.35, 0.35], c: 0x2b3a55 },
+  { a: [-0.55, 0.35, -0.35], b: [0.55, 1.35, 0.35], c: 0x9a3b3b },
+  { a: [-0.85, 1.05, -0.3], b: [-0.55, 1.9, 0.3], c: 0x9a3b3b },
+  { a: [0.55, 1.05, -0.3], b: [0.85, 1.9, 0.3], c: 0x9a3b3b },
+  { a: [-0.42, 1.35, -0.42], b: [0.42, 2.05, 0.42], c: 0xe8c9a6 },
+  { a: [-0.5, 2.05, -0.5], b: [0.5, 2.35, 0.5], c: 0x3a2b22 },
+], 0.075, 0.12), heroMat);
+heroMesh.castShadow = true;
+scene.add(heroMesh);
+
+// ---------------------------------------------------------------- 抽出的两个模块
+game.crowd = createCrowd(game, GRUNTS);
+const crowdView = createCrowdView(scene, game);
+game.crowd.spawnArmy();
+
+// 启动快进：无头/首次加载时群体刚出生还在远处，先空跑 ~8 秒 sim 让它们围上来，
+// 这样一打开就能看到交战（渲染与 sim 解耦，快进不影响任何状态）。
+for (let k = 0; k < 480; k++) { game.frame++; game.crowd.step(); }
+
+// ---------------------------------------------------------------- 固定 60Hz 步进（原版语义：sim 只在 step() 里推进）
+const STEP = 1 / 60;
+let acc = 0, last = performance.now(), time = 0, waveT = 0;
+
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now; acc += dt; time += dt;
+
+  while (acc >= STEP) {
+    acc -= STEP;
+    game.frame++;
+    // 英雄原地转圈（让群体有东西可追），并周期补血，好让 demo 一直跑
+    game.hero.yaw += 0.004;
+    game.cam.yaw = game.hero.yaw;
+    if (game.frame % 900 === 0) game.hero.hp = Math.min(100, game.hero.hp + 25);
+    if (game.hero.hp <= 0) { game.hero.hp = 100; game.crowd.reset(); game.crowd.spawnArmy(); }
+    game.crowd.step();
+  }
+  crowdView.update(dt);
+
+  // 英雄朝向 + 跟随镜头（原版是轨道相机，这里简化成绕英雄转）
+  heroMesh.rotation.y = game.hero.yaw;
+  const r = 17, a = game.hero.yaw * 0.5 + 0.6;
+  camera.position.set(Math.sin(a) * r, 9, Math.cos(a) * r);
+  camera.lookAt(0, 1.6, 0);
+
+  // 统计
+  if ((game.frame & 15) === 0) {
+    let alive = 0, engaged = 0;
+    for (let i = 0; i < game.crowd.N; i++) {
+      const s = game.crowd.st[i];
+      if (s !== ST.OFF && s !== ST.DEAD) alive++;
+      if (s === ST.ADVANCE || s === ST.ATTACK) engaged++;
+    }
+    document.getElementById('s-units').textContent = alive;
+    document.getElementById('s-engaged').textContent = engaged;
+    document.getElementById('s-hp').textContent = game.hero.hp.toFixed(0);
+    document.getElementById('s-frame').textContent = game.frame;
+  }
+
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// headless 验证
+window.__ready = true;
+window.__stats = () => {
+  const c = game.crowd;
+  let alive = 0, dead = 0, off = 0;
+  for (let i = 0; i < c.N; i++) {
+    if (c.st[i] === ST.OFF) off++;
+    else if (c.st[i] === ST.DEAD) dead++;
+    else alive++;
+  }
+  return { N: c.N, alive, dead, off, frame: game.frame, heroHp: +game.hero.hp.toFixed(1) };
+};
+</script>
+</body>
+</html>

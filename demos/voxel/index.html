@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>voxel.js 抽取 demo — 从 voxel-musou 抽出的独立子系统</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #10161b; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; left: 16px; bottom: 14px; color: #cfe3ea;
+    font: 12px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+    text-shadow: 0 1px 2px #000a; pointer-events: none;
+  }
+  #hud b { color: #7fd1c8; }
+  #hud .dim { color: #6b818c; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="hud">
+  <b>voxel.js</b> — 从 voxel-musou 抽出的独立子系统<br>
+  左：<code>sculpt()</code> 盒子列表 → 体素网格 → 只出面 + AO + 逐体素色抖动<br>
+  右：<code>boxesGeometry()</code> 同样输入但不体素化（对照）<br>
+  <span class="dim">依赖：three + rng.js（hash01）· 12KB · 无构建步骤</span>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { sculpt, boxesGeometry, mergeVoxel } from '../../lib/voxel.js';
+
+// ---------------------------------------------------------------- 场景
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(devicePixelRatio, 2));
+renderer.setSize(innerWidth, innerHeight);
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+document.body.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x10161b);
+scene.fog = new THREE.Fog(0x10161b, 24, 52);
+
+const camera = new THREE.PerspectiveCamera(38, innerWidth / innerHeight, 0.1, 100);
+camera.position.set(0, 6.4, 17.5);
+camera.lookAt(0, 3.0, 0);
+
+scene.add(new THREE.HemisphereLight(0xbfe3ff, 0x2a2118, 0.75));
+const sun = new THREE.DirectionalLight(0xfff0d6, 2.1);
+sun.position.set(5, 8, 4);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+sun.shadow.camera.near = 1;
+sun.shadow.camera.far = 30;
+const d = 7;
+Object.assign(sun.shadow.camera, { left: -d, right: d, top: d, bottom: -d });
+scene.add(sun);
+
+// 地面：一个盒子
+const ground = new THREE.Mesh(
+  boxesGeometry([{ s: [26, 0.4, 26], p: [0, -0.2, 0], c: 0x2c3a40 }]),
+  new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95 })
+);
+ground.receiveShadow = true;
+scene.add(ground);
+
+const voxelMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.04, flatShading: true });
+
+// ---------------------------------------------------------------- 盒子列表（数据就是美术）
+// 同一份盒子数据喂给两个函数，直观看出 sculpt() 的体素化效果
+const TREE = [
+  { a: [-1.2, 0, -1.2], b: [1.2, 3.0, 1.2], c: 0x6b4a2f },              // 树干
+  { a: [-3.4, 3.0, -3.4], b: [3.4, 5.2, 3.4], c: 0x2f7d4f },             // 冠层 1
+  { a: [-2.6, 5.2, -2.6], b: [2.6, 6.8, 2.6], c: 0x37935c },             // 冠层 2
+  { a: [-1.6, 6.8, -1.6], b: [1.6, 8.0, 1.6], c: 0x41a868 },             // 冠层 3
+  // paint 盒子：只给已存在的体素重新上色（做斑驳/高光）
+  { a: [-3.4, 3.0, -3.4], b: [3.4, 5.2, 3.4], c: (x, y, z) => (Math.sin(x * 2.1) + Math.cos(z * 1.7) > 0.9 ? 0x8fd47a : null), paint: true },
+];
+
+const FIGURE = [
+  { a: [-0.5, 0, -0.35], b: [0.5, 0.35, 0.35], c: 0x2b3a55 },           // 靴
+  { a: [-0.55, 0.35, -0.35], b: [0.55, 1.35, 0.35], c: 0x35507a },      // 躯干
+  { a: [-0.85, 1.05, -0.3], b: [-0.55, 1.9, 0.3], c: 0x35507a },        // 左臂
+  { a: [0.55, 1.05, -0.3], b: [0.85, 1.9, 0.3], c: 0x35507a },          // 右臂
+  { a: [-0.42, 1.35, -0.42], b: [0.42, 2.05, 0.42], c: 0xe8c9a6 },      // 头
+  { a: [-0.5, 2.05, -0.5], b: [0.5, 2.35, 0.5], c: 0x3a2b22 },          // 头发
+  { a: [-0.34, 1.72, 0.4], b: [0.34, 1.82, 0.44], c: 0x1a1a22 },        // 眼带
+  { a: [-0.18, 0.55, 0.34], b: [0.18, 0.75, 0.38], c: 0xd4a84c },       // 腰带扣
+];
+
+// 左：sculpt() —— 体素化（voxel 尺寸 0.1），带 AO 与色抖动
+const left = new THREE.Group();
+const treeVox = new THREE.Mesh(sculpt(TREE, 0.1, 0.16), voxelMat);
+treeVox.castShadow = treeVox.receiveShadow = true;
+left.add(treeVox);
+const figVox = new THREE.Mesh(sculpt(FIGURE, 0.07, 0.14), voxelMat);
+figVox.castShadow = figVox.receiveShadow = true;
+figVox.position.set(2.6, 0, 2.2);
+figVox.rotation.y = -0.5;
+left.add(figVox);
+left.position.x = -3.1;
+scene.add(left);
+
+// 右：boxesGeometry() —— 不体素化，同样的盒子直接出网格（对照）
+// ⚠️ 抽取时注意：两个 builder 的盒子格式不同
+//    sculpt()         { a:[x0,y0,z0], b:[x1,y1,z1], c }
+//    boxesGeometry()  { s:[w,h,d],    p:[cx,cy,cz],  c }
+const toSp = (bx) => ({
+  s: [bx.b[0] - bx.a[0], bx.b[1] - bx.a[1], bx.b[2] - bx.a[2]],
+  p: [(bx.a[0] + bx.b[0]) / 2, (bx.a[1] + bx.b[1]) / 2, (bx.a[2] + bx.b[2]) / 2],
+  c: bx.c,
+});
+const right = new THREE.Group();
+const treeBox = new THREE.Mesh(boxesGeometry(TREE.filter((b) => !b.paint).map(toSp)), voxelMat);
+treeBox.castShadow = treeBox.receiveShadow = true;
+right.add(treeBox);
+const figBox = new THREE.Mesh(boxesGeometry(FIGURE.map(toSp)), voxelMat);
+figBox.castShadow = figBox.receiveShadow = true;
+figBox.position.set(2.6, 0, 2.2);
+figBox.rotation.y = -0.5;
+right.add(figBox);
+right.position.x = 3.1;
+scene.add(right);
+
+// 合并几何的用法（mergeVoxel）：把两个部件并成一个 mesh
+const merged = new THREE.Mesh(
+  mergeVoxel([sculpt([{ a: [-0.5, 0, -0.5], b: [0.5, 1, 0.5], c: 0xd4a84c }], 0.08), sculpt([{ a: [-0.3, 1, -0.3], b: [0.3, 1.6, 0.3], c: 0x2a78e0 }], 0.08)]),
+  voxelMat
+);
+merged.position.set(0, 0.02, -3.6);
+merged.castShadow = merged.receiveShadow = true;
+scene.add(merged);
+
+// ---------------------------------------------------------------- 循环
+let t = 0;
+function frame() {
+  t += 0.004;
+  camera.position.x = Math.sin(t) * 17.5;
+  camera.position.z = Math.cos(t) * 17.5;
+  camera.position.y = 6.4 + Math.sin(t * 1.7) * 0.8;
+  camera.lookAt(0, 3.0, 0);
+  renderer.render(scene, camera);
+  requestAnimationFrame(frame);
+}
+frame();
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  renderer.setSize(innerWidth, innerHeight);
+});
+
+// 给 headless 验证用
+window.__ready = true;
+window.__stats = () => ({
+  leftTris: treeVox.geometry.index.count / 3 + figVox.geometry.index.count / 3,
+  rightTris: treeBox.geometry.index.count / 3 + figBox.geometry.index.count / 3,
+  mergedTris: merged.geometry.index.count / 3,
+  cam: camera.position.toArray().map((v) => +v.toFixed(2)),
+});
+</script>
+</body>
+</html>

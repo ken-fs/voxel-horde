@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>post.js 抽取 demo — 左：原生渲染 · 右：后处理链</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0a0e12; overflow: hidden; }
+  .wrap { display: flex; height: 100%; }
+  .pane { position: relative; flex: 1 1 50%; overflow: hidden; }
+  .pane canvas { display: block; width: 100%; height: 100%; }
+  .tag {
+    position: absolute; top: 10px; left: 12px; z-index: 2;
+    font: 11px/1.4 ui-monospace, Menlo, monospace; letter-spacing: .04em;
+    color: #cfe3ea; background: #000a; padding: 3px 8px; border-radius: 3px;
+  }
+  .tag b { color: #7fd1c8; }
+  .divider { width: 1px; background: #223040; }
+  #hud {
+    position: fixed; left: 16px; bottom: 12px; color: #c9d8e2; z-index: 3;
+    font: 12px/1.7 ui-monospace, Menlo, monospace; text-shadow: 0 1px 2px #000a; pointer-events: none;
+  }
+  #hud b { color: #7fd1c8; }
+  #hud .dim { color: #64798a; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div class="wrap">
+  <div class="pane"><div class="tag"><b>原生</b> WebGLRenderer</div><canvas id="plain"></canvas></div>
+  <div class="divider"></div>
+  <div class="pane"><div class="tag"><b>post.js</b> 大气透视 → 景深 → Bloom → 调色/抖动/量化</div><canvas id="posted"></canvas></div>
+</div>
+<div id="hud">
+  <b>post.js</b> — 从 voxel-musou 抽出的独立子系统（256 行 + 2 个 addon）<br>
+  解耦改动只有一处：<code>SUN_DIR</code> 从 <code>../world/sky.js</code> 内联成常量<br>
+  <span class="dim">同一场景、同一相机、同一时刻 —— 差别全部来自这条后处理链</span>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { sculpt, boxesGeometry } from '../../lib/voxel.js';
+import { createPost } from '../../lib/post.js';
+
+// ---------------------------------------------------------------- 场景（复用前面抽出的 voxel.js）
+function buildScene() {
+  const scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x2a2f3a);
+  scene.fog = new THREE.Fog(0x2a2f3a, 30, 70);
+
+  scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x3a2c1e, 0.55));
+  const sun = new THREE.DirectionalLight(0xffd9a0, 2.6);
+  sun.position.set(5.5, 5.2, 6.5);
+  sun.castShadow = true;
+  sun.shadow.mapSize.set(2048, 2048);
+  Object.assign(sun.shadow.camera, { left: -12, right: 12, top: 12, bottom: -12, near: 1, far: 40 });
+  scene.add(sun);
+
+  const mat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, metalness: 0.05, flatShading: true });
+
+  // 地面
+  const ground = new THREE.Mesh(boxesGeometry([{ s: [40, 0.4, 40], p: [0, -0.2, 0], c: 0x4a4238 }]), mat);
+  ground.receiveShadow = true;
+  scene.add(ground);
+
+  // 一片体素树（用 sculpt 体素化）
+  const tree = (x, z, s) => {
+    const g = new THREE.Group();
+    const boxes = [
+      { a: [-0.9, 0, -0.9], b: [0.9, 3.2, 0.9], c: 0x6b4a2f },
+      { a: [-2.8, 3.2, -2.8], b: [2.8, 5.0, 2.8], c: 0x2f7d4f },
+      { a: [-2.0, 5.0, -2.0], b: [2.0, 6.4, 2.0], c: 0x37935c },
+      { a: [-1.2, 6.4, -1.2], b: [1.2, 7.4, 1.2], c: 0x41a868 },
+      { a: [-2.8, 3.2, -2.8], b: [2.8, 5.0, 2.8], c: (px, py, pz) => (Math.sin(px * 1.9) + Math.cos(pz * 1.5) > 0.85 ? 0x9fd98a : null), paint: true },
+    ];
+    const m = new THREE.Mesh(sculpt(boxes, 0.11, 0.18), mat);
+    m.castShadow = m.receiveShadow = true;
+    g.add(m);
+    g.position.set(x, 0, z);
+    g.scale.setScalar(s);
+    return g;
+  };
+  scene.add(tree(-4.5, -2.5, 1), tree(4.2, -4.0, 0.85), tree(0.5, -8.5, 1.15));
+
+  // 中央：体素小人 + 一个纯盒子对照
+  const figure = [
+    { a: [-0.5, 0, -0.35], b: [0.5, 0.35, 0.35], c: 0x2b3a55 },
+    { a: [-0.55, 0.35, -0.35], b: [0.55, 1.35, 0.35], c: 0x35507a },
+    { a: [-0.85, 1.05, -0.3], b: [-0.55, 1.9, 0.3], c: 0x35507a },
+    { a: [0.55, 1.05, -0.3], b: [0.85, 1.9, 0.3], c: 0x35507a },
+    { a: [-0.42, 1.35, -0.42], b: [0.42, 2.05, 0.42], c: 0xe8c9a6 },
+    { a: [-0.5, 2.05, -0.5], b: [0.5, 2.35, 0.5], c: 0x3a2b22 },
+    { a: [-0.18, 0.55, 0.34], b: [0.18, 0.75, 0.38], c: 0xd4a84c },
+  ];
+  const fig = new THREE.Mesh(sculpt(figure, 0.075, 0.14), mat);
+  fig.castShadow = fig.receiveShadow = true;
+  fig.position.set(0, 0, 0);
+  scene.add(fig);
+
+  const gold = new THREE.Mesh(boxesGeometry([{ s: [1, 2.2, 1], p: [-2.2, 1.1, 1.4], c: 0xd4a84c }]), mat);
+  gold.castShadow = gold.receiveShadow = true;
+  scene.add(gold);
+
+  // 篝火（给 Bloom 一点高光）
+  const fire = new THREE.Mesh(new THREE.IcosahedronGeometry(0.34, 1), new THREE.MeshBasicMaterial({ color: 0xffb454 }));
+  fire.position.set(2.6, 0.42, 0.6);
+  scene.add(fire);
+  const ember = new THREE.PointLight(0xff8c3c, 6, 12, 2);
+  ember.position.copy(fire.position);
+  scene.add(ember);
+
+  return { scene, fire };
+}
+
+const { scene, fire } = buildScene();
+
+const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
+camera.position.set(7.5, 4.2, 9.5);
+camera.lookAt(0, 1.6, 0);
+
+// ---------------------------------------------------------------- 左：原生
+const plain = new THREE.WebGLRenderer({ canvas: document.getElementById('plain'), antialias: true });
+plain.setPixelRatio(Math.min(devicePixelRatio, 2));
+plain.shadowMap.enabled = true;
+plain.shadowMap.type = THREE.PCFShadowMap;
+plain.toneMapping = THREE.ACESFilmicToneMapping;
+plain.toneMappingExposure = 1.0;
+plain.outputColorSpace = THREE.SRGBColorSpace;
+
+// ---------------------------------------------------------------- 右：抽出的 post 链
+const posted = createPost({ canvas: document.getElementById('posted'), width: 640, height: 720 });
+
+// ---------------------------------------------------------------- 尺寸
+function size() {
+  const w = Math.floor(innerWidth / 2), h = innerHeight;
+  plain.setSize(w, h, false);
+  posted.setSize(w, h);
+  camera.aspect = w / h;
+  camera.updateProjectionMatrix();
+}
+size();
+addEventListener('resize', size);
+
+// ---------------------------------------------------------------- 循环
+const focus = new THREE.Vector3(0, 1.4, 0);
+let t = 0;
+function frame() {
+  t += 0.016;
+  fire.position.y = 0.42 + Math.sin(t * 2.2) * 0.05;
+  fire.scale.setScalar(1 + Math.sin(t * 3.1) * 0.06);
+
+  plain.render(scene, camera);
+  posted.render(scene, camera, t, focus, 0);
+
+  requestAnimationFrame(frame);
+}
+frame();
+
+// headless 验证
+window.__ready = true;
+window.__stats = () => ({
+  plainSize: [plain.domElement.width, plain.domElement.height],
+  postedSize: [document.getElementById('posted').width, document.getElementById('posted').height],
+  focusDist: +camera.position.distanceTo(focus).toFixed(2),
+});
+</script>
+</body>
+</html>

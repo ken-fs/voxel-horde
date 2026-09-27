@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>game-starter — 6 个 demo 入口</title>
+<style>
+  :root { color-scheme: dark; }
+  body { margin: 0; min-height: 100vh; background: #0b0f14; color: #dfe9f0;
+         font: 15px/1.7 ui-monospace, SFMono-Regular, Menlo, monospace;
+         display: grid; place-items: center; padding: 40px 20px; }
+  .wrap { width: min(880px, 100%); }
+  h1 { font-size: 24px; margin: 0 0 6px; color: #7fd1c8; }
+  p.sub { margin: 0 0 26px; color: #8fa6b4; font-size: 13px; }
+  .grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); }
+  a.card { display: block; text-decoration: none; color: inherit; background: #131c24;
+           border: 1px solid #26343f; border-radius: 12px; padding: 16px 18px; transition: .12s; }
+  a.card:hover { border-color: #7fd1c8; transform: translateY(-2px); background: #17242e; }
+  a.card.hero { grid-column: 1 / -1; background: linear-gradient(100deg, #16242e, #131c24); border-color: #3a5a66; }
+  .k { font-size: 11px; color: #7fd1c8; letter-spacing: .05em; }
+  .n { font-size: 17px; margin: 6px 0 4px; color: #fff; }
+  .d { font-size: 12.5px; color: #8fa6b4; }
+  .note { margin-top: 24px; font-size: 12.5px; color: #7b93a3; border-top: 1px solid #1e2a33; padding-top: 16px; }
+  .note b { color: #ffcf7a; }
+  kbd { background: #1e2a33; border: 1px solid #2c3f4d; border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>game-starter</h1>
+  <p class="sub">从 voxel-musou（MIT）抽出的 4 个子系统 · 1,985 行 · 零外部美术资产（模型/贴图/音频全靠代码生成）</p>
+
+  <div class="grid">
+    <a class="card hero" href="./demos/play/">
+      <div class="k">可玩 · 建议先玩这个</div>
+      <div class="n">▶ Voxel Horde v2.2（幸存者类 · 主动技能 + Boss）</div>
+      <div class="d">
+        <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd> 移动 · <kbd>Space</kbd> 旋风斩 · <kbd>Shift</kbd> 冲刺（带无敌帧）<br>
+        普攻只在<b>身前扇形</b>生效（背对会被打）· 每 3 波来一个 <b>Boss</b> · 升级按 <kbd>1</kbd><kbd>2</kbd><kbd>3</kbd>
+      </div>
+    </a>
+
+    <a class="card" href="./demos/horde/">
+      <div class="k">展示</div>
+      <div class="n">组合切片</div>
+      <div class="d">304 兵围殴 + 体素环境 + 火把辉光 + 电影感调色（不可操作）</div>
+    </a>
+
+    <a class="card" href="./demos/crowd/">
+      <div class="k">子系统</div>
+      <div class="n">群体系统 crowd/</div>
+      <div class="d">300 单位状态机 + 小队编队 + 攻击令牌 + InstancedMesh 姿态混合</div>
+    </a>
+
+    <a class="card" href="./demos/rig/">
+      <div class="k">子系统</div>
+      <div class="n">骨架 IK rig/</div>
+      <div class="d">人形骨架 + 姿势采样 + 2-bone IK（手会沿武器杆滑动）</div>
+    </a>
+
+    <a class="card" href="./demos/post/">
+      <div class="k">子系统</div>
+      <div class="n">后处理 post/</div>
+      <div class="d">大气透视 → 景深 → Bloom → Lottes 调色 → 抖动量化（左原生/右处理）</div>
+    </a>
+
+    <a class="card" href="./demos/voxel/">
+      <div class="k">子系统</div>
+      <div class="n">体素网格 voxel/</div>
+      <div class="d">盒子列表 → 带 AO 的网格（体素化 vs 纯盒子对照）</div>
+    </a>
+  </div>
+
+  <div class="note">
+    <b>玩法提示</b>：前期敌人血少、你伤害低 —— 优先点「利刃」和「疾风」；
+    被围住时往空地跑（敌人有攻击令牌，同时只有少数能真打到你）。<br>
+    开发参数：<code>?ff=40&auto=1</code> 快进 40 秒并自动选卡（截图/录屏用）。<br>
+    代码 MIT（© 2026 BubuAi 抽出版）· 军旗已换皮为原创骷髅徽记，无既有作品 IP。
+  </div>
+</div>
+</body>
+</html>

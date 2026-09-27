@@ -1,0 +1,1617 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Voxel Horde — v2（主动技能 + Boss + 打击感）</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0f14; overflow: hidden; font-family: ui-monospace, Menlo, monospace; }
+  canvas { display: block; }
+  .ui { position: fixed; color: #e6eef4; text-shadow: 0 1px 3px #000b; user-select: none; }
+  #top { left: 0; right: 0; top: 0; padding: 10px 16px; display: flex; gap: 16px; align-items: center;
+         background: linear-gradient(#000c, #0000); font-size: 13px; }
+  #top b { color: #ffcf7a; }
+  #bars { position: fixed; left: 16px; top: 40px; width: 240px; }
+  .bar { height: 9px; background: #ffffff1f; border-radius: 5px; overflow: hidden; margin-bottom: 5px; position: relative; }
+  .bar > i { display: block; height: 100%; width: 0%; }
+  #hpF { background: linear-gradient(90deg, #d0402c, #ff8a5c); }
+  #xpF { background: linear-gradient(90deg, #3fa9d8, #7fe3d0); }
+  /* 技能条 */
+  #skills { position: fixed; left: 50%; transform: translateX(-50%); bottom: 16px; display: flex; gap: 12px; }
+  .sk { width: 128px; background: #0d151be6; border: 1px solid #2c3f4d; border-radius: 10px; padding: 8px 10px; position: relative; overflow: hidden; }
+  .sk .k { font-size: 11px; color: #7fd1c8; }
+  .sk .n { font-size: 13px; color: #fff; margin-top: 2px; }
+  .sk .fill { position: absolute; inset: 0; background: #7fd1c822; transform-origin: left; transform: scaleX(1); }
+  .sk.ready { border-color: #7fd1c8; }
+  .sk.ready .n { color: #9ff5e6; }
+  .sk.locked { opacity: .45; }
+  .sk.locked .n::after { content: ' 🔒'; }
+  .sk.fire.ready { border-color: #ff9a4a; }
+  .sk.fire.ready .n { color: #ffc98a; }
+  #toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: 96px; text-align: center;
+           font-size: 15px; color: #ffe6b0; text-shadow: 0 2px 6px #000c; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  #toast.on { opacity: 1; }
+  #toast b { color: #fff; }
+  /* Boss 血条 */
+  #stats { position: fixed; right: 16px; top: 40px; text-align: right; font-size: 12px; line-height: 1.7; color: #b9cbd8; }
+  #stats b { color: #ffcf7a; }
+  #boss { position: fixed; left: 50%; top: 56px; transform: translateX(-50%); width: min(560px, 76vw); display: none; }
+  #boss.on { display: block; }
+  #boss .lbl { font-size: 12px; color: #ff9a7a; text-align: center; letter-spacing: .1em; margin-bottom: 4px; }
+  #boss .bar { height: 13px; border: 1px solid #6a2a1e; }
+  #bossF { background: linear-gradient(90deg, #8c2418, #ff6a4a); transition: width .1s linear; }
+  /* 横幅 */
+  #banner { position: fixed; left: 0; right: 0; top: 32%; text-align: center; font-size: 34px; letter-spacing: .2em;
+            color: #ffcf7a; opacity: 0; transition: opacity .25s; pointer-events: none; }
+  #banner.on { opacity: 1; }
+  /* 伤害数字 */
+  #nums { position: fixed; inset: 0; pointer-events: none; overflow: hidden; }
+  .dmg { position: absolute; font-size: 13px; font-weight: 700; color: #fff; will-change: transform, opacity; }
+  .dmg.crit { font-size: 17px; color: #ffcf7a; }
+  /* 危险红闪 */
+  #danger { position: fixed; inset: 0; pointer-events: none; box-shadow: inset 0 0 120px #d0402caa; opacity: 0; transition: opacity .2s; }
+  /* 升级 / 结算 */
+  #levelup, #over { inset: 0; display: none; place-items: center; background: #04070ad0; z-index: 10; }
+  #levelup.on, #over.on { display: grid; }
+  #levelup .box, #over .box { width: min(780px, 92vw); text-align: center; }
+  h2 { font-size: 22px; margin: 0 0 4px; color: #ffcf7a; }
+  .sub { margin: 0 0 18px; color: #9fb3c2; font-size: 13px; }
+  #cards { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+  .card { flex: 1 1 200px; max-width: 236px; background: #131c24e6; border: 1px solid #2c3f4d; border-radius: 12px;
+          padding: 16px; cursor: pointer; text-align: left; transition: .12s; }
+  .card:hover { border-color: #7fd1c8; transform: translateY(-3px); }
+  .card .k { font-size: 11px; color: #7fd1c8; }
+  .card .n { font-size: 16px; margin: 6px 0; color: #fff; }
+  .card .d { font-size: 12px; color: #9fb3c2; line-height: 1.6; }
+  .card .lv { font-size: 11px; color: #ffcf7a; margin-top: 8px; }
+  #over h1 { font-size: 30px; margin: 0 0 6px; color: #ff8a5c; }
+  #over .row { color: #cfdce6; font-size: 15px; margin: 6px 0; }
+  #over .row b { color: #ffcf7a; }
+  #over .best { margin-top: 12px; color: #7fd1c8; font-size: 13px; }
+  #again { margin-top: 20px; font: inherit; font-size: 15px; padding: 12px 30px; border-radius: 999px; border: 0;
+           background: #d0402c; color: #fff; cursor: pointer; }
+  #again:hover { background: #e2503c; }
+  #hint { left: 16px; bottom: 14px; font-size: 11.5px; color: #8fa6b4; line-height: 1.6; }
+  #hint b { color: #7fd1c8; }
+</style>
+</head>
+<body>
+<div id="danger"></div>
+<div id="nums"></div>
+<div class="ui" id="top">
+  <span>时间 <b id="t-time">0:00</b></span>
+  <span>击杀 <b id="t-kills">0</b></span>
+  <span>等级 <b id="t-lv">1</b></span>
+  <span>波次 <b id="t-wave">1</b></span>
+  <span>BOSS <b id="t-boss">0</b> 杀 · 下个第 <b id="t-next">3</b> 波</span>
+</div>
+<div class="ui" id="stats">
+  <div>伤害 <b id="st-dmg">-</b> · 范围 <b id="st-rad">-</b></div>
+  <div>攻速 <b id="st-aspd">-</b>/秒 · 暴击 <b id="st-crit">-</b></div>
+  <div>移速 <b id="st-spd">-</b> · 小兵伤害 <b id="st-edmg">-</b></div>
+  <div>野怪 <b id="st-mon">0</b> · 装备 <b id="st-gear">0</b></div>
+</div>
+<div class="ui" id="bars">
+  <div class="bar"><i id="hpF"></i></div>
+  <div class="bar"><i id="xpF"></i></div>
+</div>
+<div id="boss" class="ui"><div class="lbl">BOSS</div><div class="bar"><i id="bossF" style="width:100%"></i></div></div>
+<div id="banner"></div>
+<div id="hint" class="ui">
+  <b>WASD</b> 移动 · <b>Space</b> 旋风斩 · <b>Shift</b> 冲刺（含无敌帧）· 普攻自动<br>
+  普攻只打身前扇形 —— 背对敌人会被打，必须走位/转身（旋风斩才是 360°）
+</div>
+<div id="skills" class="ui">
+  <div class="sk ready" id="sk-spin"><div class="fill"></div><div class="k">SPACE</div><div class="n">旋风斩</div></div>
+  <div class="sk ready" id="sk-dash"><div class="fill"></div><div class="k">SHIFT</div><div class="n">冲刺</div></div>
+  <div class="sk locked fire" id="sk-nova"><div class="fill"></div><div class="k">E</div><div class="n">烈焰冲击</div></div>
+</div>
+<div id="toast"></div>
+
+<div class="ui" id="levelup"><div class="box">
+  <h2>升级！</h2><p class="sub">选一项强化（按 1 / 2 / 3）</p><div id="cards"></div>
+</div></div>
+
+<div class="ui" id="over"><div class="box">
+  <h1>你被淹没了</h1>
+  <div class="row">存活 <b id="o-time">0:00</b> · 击杀 <b id="o-kills">0</b> · 等级 <b id="o-lv">1</b> · 最高波次 <b id="o-wave">1</b></div>
+  <div class="row best">最佳：<span id="o-best">—</span></div>
+  <button id="again">再来一次</button>
+</div></div>
+
+<script type="importmap">
+{ "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }
+</script>
+<script type="module">
+import * as THREE from 'three';
+import { createCrowd, ST, CROWD } from '../../lib/crowd.js';
+import { createCrowdView } from '../../lib/view.js';
+import { sculpt, boxesGeometry } from '../../lib/voxel.js';
+import { createPost } from '../../lib/post.js';
+
+const QS = new URLSearchParams(location.search);
+const FF = Number(QS.get('ff') || 0);
+const AUTO = QS.get('auto') === '1';
+const GOD = QS.get('god') === '1';          // ?god=1：不掉血（截图/调试 boss 用）
+const SPAM = QS.get('spam') === '1';        // ?spam=1：循环自动放技能（截图/录屏用）
+const BOT = QS.get('bot') === '1';          // ?bot=1：自动面向最近敌人（快进/截图时代表真实打法）
+const GRUNTS = Math.max(40, Math.min(600, Number(QS.get('n') || 300) | 0));
+
+// ================================================================ 配置（v2：压力大幅上调）
+const STEP = 1 / 60;
+const CFG = {
+  heroSpeed: 7.6,
+  atkRadius: 2.5, atkDamage: 20, atkInterval: 32,
+  atkArc: 0.78 * Math.PI,                             // 普攻只打朝向 ±70°（关键：背面敌人能打到你 → 必须走位）
+  heroHpMax: 100,
+  waveLen: 1200,                                      // 20 秒一波
+  // 目标：**第一次升级 ≈ 21 秒**。你的实测 9.15 击杀/秒是第 6 级时的速率，前期更低（约 6-7/秒），
+  // 所以取 160：9 击杀/秒 → 17.8s，6 击杀/秒 → 26.7s，均值落在 21s 附近。
+  // 之后只 ×1.18 —— 因为击杀率本身会随变强上升，两者相乘 ≈ 稳定「21 秒一节」。
+  xpPerLevel: (lv) => Math.round(160 * Math.pow(1.18, lv - 1)),  // 160/189/223/263/310/366/432…
+  killXp: 1,
+  enemyDmg: (w, lv) => (6 + w * 1.1) * (1 + 0.05 * (lv - 1)),   // 随波次 + 随等级双增长
+  critBase: 0.08, critMul: 2.2,
+  bossEvery: 3,                                       // 每 3 波一个 boss
+};
+const SKILL = {
+  spin: { cd: 150, radius: 2.3, dmg: 3.2, freeze: 9, shake: 0.55 },   // 旋风斩：2.5s
+  dash: { cd: 110, dist: 4.6, invuln: 26, shake: 0.3 },               // 冲刺：1.83s
+  // v2.7：烈焰冲击 —— 朝向前方的直线（长 20、半宽 1.9），线内全部吃伤害，并留下灼烧带
+  nova: { cd: 720, len: 20, half: 1.9, dmg: 4.5, burn: 4.5, burnTick: 30, shake: 0.8 },
+};
+const BASE = { hp: CROWD.hp, captain: CROWD.captainHp, officer: CROWD.officerHp, engaged: CROWD.engaged, waveEvery: [...CROWD.waveEvery] };
+
+// ---- 压力调优：直接改 crowd 配置（原作默认是"围而不杀"，站桩几乎不掉血）
+Object.assign(CROWD, {
+  tokens: 6,            // 3 → 6 个兵可以同时贴身
+  maxStrikers: 5,       // 2 → 5 个同时起手
+  attackRange: 1.9,
+  aggro: 12, officerAggro: 20,
+  cooldown: [70, 150], officerCd: [36, 80],
+  grace: [60, 120], rally: [1, 3],
+  engaged: 130,
+  waveEvery: [30, 70],
+  hp: 34, captainHp: 90, officerHp: 620,
+});
+
+// ================================================================ 音效（零素材，WebAudio 现场合成）
+let AC = null;
+const audioReady = () => { if (!AC) { try { AC = new (window.AudioContext || window.webkitAudioContext)(); } catch { /* 不支持 */ } } return AC; };
+function tone(freq, dur, type = 'square', gain = 0.045, sweep = 0) {
+  const ac = audioReady(); if (!ac) return;
+  const o = ac.createOscillator(), g = ac.createGain();
+  o.type = type; o.frequency.setValueAtTime(freq, ac.currentTime);
+  if (sweep) o.frequency.exponentialRampToValueAtTime(Math.max(40, freq + sweep), ac.currentTime + dur);
+  g.gain.setValueAtTime(gain, ac.currentTime);
+  g.gain.exponentialRampToValueAtTime(0.0008, ac.currentTime + dur);
+  o.connect(g).connect(ac.destination); o.start(); o.stop(ac.currentTime + dur);
+}
+function noise(dur = 0.06, gain = 0.05, hp = 1200) {
+  const ac = audioReady(); if (!ac) return;
+  const n = ac.sampleRate * dur, buf = ac.createBuffer(1, n, ac.sampleRate), d = buf.getChannelData(0);
+  for (let i = 0; i < n; i++) d[i] = (Math.random() * 2 - 1) * (1 - i / n);
+  const s = ac.createBufferSource(); s.buffer = buf;
+  const f = ac.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp;
+  const g = ac.createGain(); g.gain.value = gain;
+  s.connect(f).connect(g).connect(ac.destination); s.start();
+}
+const SFX = {
+  hit() { noise(0.045, 0.035, 1800); },
+  spin() { tone(520, 0.22, 'sawtooth', 0.05, -420); noise(0.16, 0.04, 600); },
+  dash() { noise(0.12, 0.045, 900); tone(300, 0.12, 'sine', 0.03, 260); },
+  level() { [523, 659, 784].forEach((f, i) => setTimeout(() => tone(f, 0.14, 'triangle', 0.05), i * 80)); },
+  bossIn() { tone(110, 0.7, 'sawtooth', 0.07, -30); setTimeout(() => tone(82, 0.9, 'sawtooth', 0.06, -20), 160); },
+  bossDie() { [330, 262, 196, 131].forEach((f, i) => setTimeout(() => tone(f, 0.3, 'square', 0.06), i * 110)); noise(0.5, 0.05, 300); },
+  hurt() { tone(180, 0.12, 'square', 0.05, -90); },
+  die() { [220, 175, 131, 98].forEach((f, i) => setTimeout(() => tone(f, 0.35, 'triangle', 0.06), i * 150)); },
+};
+
+// ================================================================ 状态
+const S = {
+  t: 0, frame: 0, kills: 0, lv: 1, xp: 0, wave: 1, bestWave: 1,
+  paused: false, dead: false, atkCd: 0, atkFlash: 0, shake: 0, cdSpin: 0, cdDash: 0, invuln: 0,
+  boss: null, flash: 0, heroSpin: 0, cdNova: 0, novaUnlocked: false,
+  firstBossDown: false, monsterT: 0, killsMonster: 0, gear: 0, bossIn: 0,
+  up: { dmg: 0, spd: 0, rad: 0, move: 0, hp: 0, regen: 0, crit: 0, fire: 0, lifesteal: 0 },
+};
+const hero = { x: 0, y: 0, z: 0, hp: CFG.heroHpMax, hpMax: CFG.heroHpMax, yaw: 0, state: 'idle' };
+const game = {
+  frame: 0, freeze: 0, hero, cam: { yaw: 0 }, crowd: null,
+  // crowd 回调：军官/Boss 的重击（3.2 倍伤害 + 更强屏震）
+  combat: { enemyStrike(i) { damageHero(isBoss(i) ? 4.0 : 1, isBoss(i)); } },
+};
+
+// v2.4：升级本身也涨属性（不只是抽卡才涨）—— 范围 +4%/级、伤害 +6%/级
+const dmg = () => CFG.atkDamage * (1 + 0.25 * S.up.dmg) * (1 + 0.06 * (S.lv - 1));
+const radius = () => CFG.atkRadius * (1 + 0.15 * S.up.rad) * (1 + 0.04 * (S.lv - 1));
+const interval = () => CFG.atkInterval / (1 + 0.22 * S.up.spd);
+const moveSpeed = () => CFG.heroSpeed * (1 + 0.12 * S.up.move);
+const isBoss = (i) => S.boss && S.boss.idx === i;
+
+// ================================================================ 渲染 / 场景
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
+const post = createPost({ canvas, width: innerWidth, height: innerHeight });
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2a2f3a);
+scene.fog = new THREE.Fog(0x2a2f3a, 34, 96);
+const camera = new THREE.PerspectiveCamera(44, innerWidth / innerHeight, 0.1, 300);
+
+scene.add(new THREE.HemisphereLight(0xcfe0ff, 0x4a3a28, 1.05));
+const sun = new THREE.DirectionalLight(0xffe3bb, 3.4);
+sun.position.set(9, 12, 7); sun.castShadow = true; sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -30, right: 30, top: 30, bottom: -30, near: 1, far: 70 });
+scene.add(sun);
+
+const vmat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.05, flatShading: true });
+scene.add(Object.assign(new THREE.Mesh(boxesGeometry([{ s: [130, 0.6, 130], p: [0, -0.3, 0], c: 0x4a4034 }]), vmat), { receiveShadow: true }));
+
+let seed = 20260927;
+const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+for (let i = 0; i < 40; i++) {
+  const a = rand() * Math.PI * 2, r = 22 + rand() * 28, kind = rand() > 0.35 ? 'tree' : 'rock';
+  const boxes = kind === 'tree' ? [
+    { a: [-0.9, 0, -0.9], b: [0.9, 3.2, 0.9], c: 0x6b4a2f },
+    { a: [-2.6, 3.2, -2.6], b: [2.6, 4.9, 2.6], c: 0x2f7d4f },
+    { a: [-1.9, 4.9, -1.9], b: [1.9, 6.2, 1.9], c: 0x37935c },
+    { a: [-1.1, 6.2, -1.1], b: [1.1, 7.2, 1.1], c: 0x41a868 },
+  ] : [{ a: [-1.3, 0, -1.3], b: [1.3, 1.5, 1.3], c: 0x5c5b55 }, { a: [-0.9, 1.5, -0.9], b: [0.9, 2.1, 0.9], c: 0x6d6c64 }];
+  const m = new THREE.Mesh(sculpt(boxes, 0.12, 0.2), vmat);
+  m.castShadow = m.receiveShadow = true;
+  m.position.set(Math.sin(a) * r, 0, Math.cos(a) * r);
+  m.scale.setScalar(0.8 + rand() * 0.7);
+  scene.add(m);
+}
+
+const heroMesh = new THREE.Mesh(sculpt([
+  { a: [-0.5, 0, -0.35], b: [0.5, 0.35, 0.35], c: 0x2b3a55 },
+  { a: [-0.55, 0.35, -0.35], b: [0.55, 1.35, 0.35], c: 0x2f6c8a },
+  { a: [-0.85, 1.05, -0.3], b: [-0.55, 1.9, 0.3], c: 0x2f6c8a },
+  { a: [0.55, 1.05, -0.3], b: [0.85, 1.9, 0.3], c: 0x2f6c8a },
+  { a: [-0.42, 1.35, -0.42], b: [0.42, 2.05, 0.42], c: 0xe8c9a6 },
+  { a: [-0.5, 2.05, -0.5], b: [0.5, 2.35, 0.5], c: 0x2a3a2a },
+  { a: [-0.18, 0.55, 0.34], b: [0.18, 0.75, 0.38], c: 0xd4a84c },
+  { a: [-0.62, 0.5, -0.5], b: [-0.5, 1.9, 0.5], c: 0x7fe3d0 },
+  { a: [0.5, 0.5, -0.5], b: [0.62, 1.9, 0.5], c: 0x7fe3d0 },
+], 0.075, 0.12), vmat);
+heroMesh.castShadow = true;
+scene.add(heroMesh);
+
+const heroRing = new THREE.Mesh(new THREE.RingGeometry(0.72, 0.92, 32),
+  new THREE.MeshBasicMaterial({ color: 0x7fe3d0, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
+heroRing.rotation.x = -Math.PI / 2;
+scene.add(heroRing);
+
+// 普攻扇形（只覆盖朝向 ±70°，视觉上就要跟判定一致 —— 否则玩家不知道背面是盲区）
+const slashGroup = new THREE.Group();
+scene.add(slashGroup);
+const slash = new THREE.Mesh(
+  new THREE.RingGeometry(0.45, 1.0, 40, 1, -Math.PI / 2 - CFG.atkArc / 2, CFG.atkArc),
+  new THREE.MeshBasicMaterial({ color: 0x9fe8ff, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false })
+);
+slash.rotation.x = -Math.PI / 2;
+slashGroup.add(slash);
+
+
+// ================================================================ 打击感素材（v2.1）
+const _v3 = new THREE.Vector3(), _m4 = new THREE.Matrix4(), _q0 = new THREE.Quaternion(), _s3 = new THREE.Vector3(), _col = new THREE.Color();
+
+// 体素碎块粒子池（InstancedMesh）：击杀火花 / 旋风爆发 / 冲刺扬尘 / Boss 死亡
+const PARTS = 220;
+const partMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), new THREE.MeshBasicMaterial(), PARTS);
+partMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
+partMesh.frustumCulled = false;
+scene.add(partMesh);
+const parts = [];
+function burst(x, y, z, n, o = {}) {
+  const { speed = 5, life = 0.7, size = 1, up = 3.2, rise = false, colors = [0xffe08a, 0x9fe8ff, 0xffffff] } = o;
+  for (let k = 0; k < n; k++) {
+    if (parts.length >= PARTS) parts.shift();
+    const a = Math.random() * Math.PI * 2, sp = speed * (0.35 + Math.random());
+    parts.push({
+      x, y: y + Math.random() * 0.7, z,
+      vx: Math.sin(a) * sp, vz: Math.cos(a) * sp, vy: up * (0.3 + Math.random()), rise,
+      life: life * (0.6 + Math.random() * 0.9), size: size * (0.55 + Math.random() * 0.9),
+      color: colors[(Math.random() * colors.length) | 0],
+    });
+  }
+}
+function updateParts(dt) {
+  let n = 0;
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.life -= dt;
+    if (p.life <= 0) { parts.splice(i, 1); continue; }
+    if (p.rise) p.vy *= 0.985; else p.vy -= 20 * dt;      // 火焰上升不落地
+    p.x += p.vx * dt; p.y += p.vy * dt; p.z += p.vz * dt;
+    if (!p.rise && p.y < 0.09) { p.y = 0.09; p.vy *= -0.32; p.vx *= 0.68; p.vz *= 0.68; }
+    const sc = p.size * Math.min(1, p.life * 3.5);
+    _m4.compose(_v3.set(p.x, p.y, p.z), _q0, _s3.set(sc, sc, sc));
+    partMesh.setMatrixAt(n, _m4);
+    partMesh.setColorAt(n, _col.set(p.color));
+    n++;
+  }
+  partMesh.count = n;
+  partMesh.visible = n > 0;
+  partMesh.instanceMatrix.needsUpdate = true;
+  if (partMesh.instanceColor) partMesh.instanceColor.needsUpdate = true;
+}
+
+// 冲刺残影：几个半透明复制体沿路径淡出
+const ghosts = [];
+for (let i = 0; i < 6; i++) {
+  const m = new THREE.Mesh(heroMesh.geometry,
+    new THREE.MeshBasicMaterial({ color: 0x8ff0e0, transparent: true, opacity: 0, depthWrite: false }));
+  m.visible = false;
+  scene.add(m);
+  ghosts.push({ m, life: 0 });
+}
+function ghostAt(x, z, yaw) {
+  const g = ghosts.find((v) => v.life <= 0) || ghosts[0];
+  g.m.position.set(x, 0, z); g.m.rotation.y = yaw; g.life = 0.34; g.m.visible = true;
+}
+
+// 旋风斩（v2.4 火焰版）：3 道由炽白到暗红、错开扩散的火环
+const FIRE_COLS = [0xfff3c4, 0xffc14a, 0xff7a24, 0xc22a08];
+const spinWaves = [];
+for (let i = 0; i < 3; i++) {
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.72, 1.0, 64),
+    new THREE.MeshBasicMaterial({ color: FIRE_COLS[i], transparent: true, opacity: 0, side: THREE.DoubleSide,
+      depthWrite: false, blending: THREE.AdditiveBlending }));
+  m.rotation.x = -Math.PI / 2;
+  scene.add(m);
+  spinWaves.push({ m, t: 1, delay: i * 0.07, scale0: 1 });
+}
+// 火盘：旋风瞬间在脚下铺开的一层火焰（随升级变大）
+const fireDisc = new THREE.Mesh(new THREE.RingGeometry(0.42, 1.0, 56),
+  new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0, side: THREE.DoubleSide,
+    depthWrite: false, blending: THREE.AdditiveBlending }));
+fireDisc.rotation.x = -Math.PI / 2;
+scene.add(fireDisc);
+
+// ================================================================ crowd
+game.crowd = createCrowd(game, GRUNTS);
+game.crowd.scale = new Float32Array(game.crowd.N).fill(0);   // 0 = 用默认体积；boss 会被设成 2.3
+const crowdView = createCrowdView(scene, game);
+
+// ================================================================ 伤害数字（DOM 池 + 3D 投影）
+const numLayer = document.getElementById('nums');
+const NUMS = [];
+for (let i = 0; i < 40; i++) {
+  const el = document.createElement('div');
+  el.className = 'dmg'; el.style.opacity = '0';
+  numLayer.appendChild(el);
+  NUMS.push({ el, x: 0, y: 0, z: 0, life: 0, vy: 0 });
+}
+function popNumber(x, y, z, text, crit) {
+  const n = NUMS.find((v) => v.life <= 0) || NUMS[0];
+  n.x = x; n.y = y; n.z = z; n.life = 0.75; n.vy = 1.1 + Math.random() * 0.5;
+  n.el.textContent = text;
+  n.el.className = crit ? 'dmg crit' : 'dmg';
+}
+const _pv = new THREE.Vector3();
+function renderNumbers(dt) {
+  for (const n of NUMS) {
+    if (n.life <= 0) { if (n.el.style.opacity !== '0') n.el.style.opacity = '0'; continue; }
+    n.life -= dt; n.y += n.vy * dt; n.vy -= 2.4 * dt;
+    _pv.set(n.x, n.y, n.z).project(camera);
+    if (_pv.z > 1) { n.el.style.opacity = '0'; continue; }
+    const sx = (_pv.x * 0.5 + 0.5) * innerWidth, sy = (-_pv.y * 0.5 + 0.5) * innerHeight;
+    n.el.style.transform = `translate(-50%,-50%) translate(${sx}px,${sy}px)`;
+    n.el.style.opacity = String(Math.min(1, n.life * 1.6));
+  }
+}
+
+// ================================================================ 输入
+const keys = new Set();
+addEventListener('keydown', (e) => {
+  audioReady();                       // 首次按键解锁音频
+  keys.add(e.code);
+  if (S.paused) { const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code); if (i >= 0) pickUpgrade(i); return; }
+  if (e.code === 'Space') { e.preventDefault(); doSpin(); }
+  if (e.code === 'ShiftRight' || e.code === 'ShiftLeft') doDash();
+  if (e.code === 'KeyE') doNova();
+});
+addEventListener('keyup', (e) => keys.delete(e.code));
+
+// ================================================================ 伤害 / 技能
+function damageHero(mult = 1, heavy = false) {
+  if (S.dead || S.invuln > 0 || GOD) return;
+  hero.hp -= CFG.enemyDmg(S.wave, S.lv) * mult;
+  S.shake = Math.max(S.shake, heavy ? 0.6 : 0.22);
+  SFX.hurt();
+  if (hero.hp <= 0) gameOver();
+}
+
+function hurt(i, amount, crit) {
+  const c = game.crowd;
+  c.hp[i] -= amount;
+  c.flash[i] = 11;
+  c.hitHeavy[i] = crit ? 1 : 0;
+  c.hs[i] = crit ? 10 : 6;
+  popNumber(c.x[i], 2.0, c.z[i], String(Math.round(amount)), crit);
+  if (c.hp[i] <= 0) {
+    c.st[i] = ST.DEAD; c.stT[i] = 0;
+    S.kills++; S.xp += CFG.killXp;
+    if (S.up.lifesteal && hero.hp < hero.hpMax) hero.hp = Math.min(hero.hpMax, hero.hp + 2 * (S.up.lifesteal / Math.max(1, S.up.lifesteal)));
+    burst(c.x[i], 1.0, c.z[i], isBoss(i) ? 0 : 4, { speed: 3.4, life: 0.42, size: 0.7, up: 2.4, colors: [0xff9a6a, 0xffd06a, 0xffffff] });
+    if (isBoss(i)) killBoss();
+    else if (S.xp >= CFG.xpPerLevel(S.lv)) levelUp();
+  } else {
+    c.st[i] = ST.HURT; c.stT[i] = 0;
+  }
+}
+
+// 普攻横扫 —— 只打"朝向 ±70°"的扇形（v2 关键改动：不再是 360° 光环）
+const fx = () => Math.sin(hero.yaw), fz = () => Math.cos(hero.yaw);
+const COS_HALF = Math.cos(CFG.atkArc / 2);
+function sweep() {
+  const c = game.crowd, R = radius(), d0 = dmg(), ffx = fx(), ffz = fz();
+  let hit = 0;
+  for (let i = 0; i < c.N; i++) {
+    if (c.st[i] === ST.OFF || c.st[i] === ST.DEAD) continue;
+    const dx = c.x[i] - hero.x, dz = c.z[i] - hero.z;
+    const d = Math.hypot(dx, dz);
+    if (d > R || !d) continue;
+    if ((dx / d) * ffx + (dz / d) * ffz < COS_HALF) continue;   // 不在扇形内 → 打不到
+    hit++;
+    const crit = Math.random() < CFG.critBase + S.up.crit * 0.08;
+    hurt(i, d0 * (crit ? CFG.critMul : 1), crit);
+  }
+  if (hit) {
+    S.atkFlash = 9;
+    slashGroup.position.set(hero.x, 0.06, hero.z);
+    slashGroup.rotation.y = hero.yaw;
+    slash.scale.setScalar(R * 1.15);
+    if (hit >= 4) SFX.hit();
+  }
+}
+
+// 旋风斩：大范围 + 击退 + hitstop + 屏震
+function doSpin() {
+  if (S.paused || S.dead || S.cdSpin > 0) return;
+  S.cdSpin = SKILL.spin.cd;
+  const c = game.crowd, R = radius() * SKILL.spin.radius, d0 = dmg() * SKILL.spin.dmg;
+  let hit = 0;
+  for (let i = 0; i < c.N; i++) {
+    if (c.st[i] === ST.OFF || c.st[i] === ST.DEAD) continue;
+    const dx = c.x[i] - hero.x, dz = c.z[i] - hero.z, d = Math.hypot(dx, dz);
+    if (d > R || !d) continue;
+    hit++;
+    hurt(i, d0, true);
+    if (c.st[i] !== ST.DEAD) {                       // 击退（还活着的）
+      const push = isBoss(i) ? 0.6 : 2.2;
+      c.x[i] += (dx / d) * push; c.z[i] += (dz / d) * push;
+    }
+  }
+  game.freeze = SKILL.spin.freeze;                   // hitstop（crowd 读 game.freeze）
+  S.shake = SKILL.spin.shake;
+  S.atkFlash = 14;
+  S.flash = 0.18;                                    // 屏幕白闪（post.render 的 flash 参数）
+  S.heroSpin = 0.42;                                 // 英雄本体旋转一圈
+  for (const w of spinWaves) { w.t = -w.delay; w.scale0 = R * 0.92; }
+  // 火焰粒子：随半径铺开一圈 + 中心一团上升火舌
+  const n = Math.min(90, 24 + Math.round(R * 5) + hit * 2);
+  burst(hero.x, 0.3, hero.z, n, { speed: 3.0 + R * 0.75, life: 0.6, size: 1.7, up: 4.0, rise: true,
+    colors: [0xff7a24, 0xffb43c, 0xffe08a, 0xff4a10, 0xfff3c4] });
+  burst(hero.x, 0.6, hero.z, 18, { speed: 1.4, life: 0.75, size: 2.1, up: 5.4, rise: true, colors: [0xffc14a, 0xfff3c4, 0xff7a24] });
+  fireDisc.position.set(hero.x, 0.07, hero.z);
+  fireDisc.scale.setScalar(R * 0.95);
+  fireDisc.material.opacity = 0.34;
+  SFX.spin();
+}
+
+// 冲刺：位移 + 无敌帧
+function doDash() {
+  if (S.paused || S.dead || S.cdDash > 0) return;
+  S.cdDash = SKILL.dash.cd;
+  const dir = dashDir();
+  hero.x += dir[0] * SKILL.dash.dist;
+  hero.z += dir[1] * SKILL.dash.dist;
+  const r = Math.hypot(hero.x, hero.z), lim = 46;
+  if (r > lim) { hero.x *= lim / r; hero.z *= lim / r; }
+  S.invuln = SKILL.dash.invuln;
+  S.shake = Math.max(S.shake, SKILL.dash.shake);
+  // 沿路径留残影 + 起终点扬尘
+  for (let i = 1; i <= 5; i++) {
+    const k = i / 5;
+    ghostAt(hero.x - dir[0] * SKILL.dash.dist * k, hero.z - dir[1] * SKILL.dash.dist * k, hero.yaw);
+  }
+  burst(hero.x - dir[0] * SKILL.dash.dist, 0.3, hero.z - dir[1] * SKILL.dash.dist, 12, { speed: 3.4, life: 0.5, size: 0.8, up: 2.2, colors: [0xcfd8dc, 0x9fb3c2] });
+  burst(hero.x, 0.3, hero.z, 10, { speed: 3, life: 0.45, size: 0.75, up: 2, colors: [0xcfd8dc, 0x9fb3c2] });
+  SFX.dash();
+}
+function dashDir() {
+  let mx = 0, mz = 0;
+  if (keys.has('KeyW') || keys.has('ArrowUp')) mz -= 1;
+  if (keys.has('KeyS') || keys.has('ArrowDown')) mz += 1;
+  if (keys.has('KeyA') || keys.has('ArrowLeft')) mx -= 1;
+  if (keys.has('KeyD') || keys.has('ArrowRight')) mx += 1;
+  const l = Math.hypot(mx, mz);
+  if (!l) return [Math.sin(hero.yaw), Math.cos(hero.yaw)];
+  return [mx / l, mz / l];
+}
+
+// ================================================================ Boss
+function spawnBoss() {
+  const c = game.crowd;
+  // ⚠️ 只用军官槽位（i >= grunts）：渲染层给军官部件分配的数量是按 CROWD.officers 算的，
+  //    把普通兵槽位改成军官会超容量 → InstancedMesh 越界 → 整个渲染循环死掉（v2 的冻结 bug）。
+  let idx = -1;
+  for (let i = c.grunts; i < c.N; i++) if (c.st[i] === ST.OFF) { idx = i; break; }
+  if (idx < 0) {                                     // 4 个军官都在场：征用第一个（完整重置，别留脏字段）
+    idx = c.grunts;
+    if (c.token[idx]) c.releaseToken(idx);
+  }
+  if (idx < 0 || idx >= c.N) return false;
+  // v2.8：上调（v2.5 那版太软，玩家反馈"纯挨打"）
+  const hpMax = Math.round(420 * (1 + 0.5 * (S.wave - 1)) * (1 + 0.08 * (S.bestWave - 1)));
+  const a = Math.random() * Math.PI * 2, d = 16;
+  const x = hero.x + Math.sin(a) * d, z = hero.z + Math.cos(a) * d;
+  // 完整重置（对照 crowd.js 的 place()：漏字段会让渲染读到 undefined/NaN）
+  c.x[idx] = x; c.z[idx] = z; c.y[idx] = 0; c.vx[idx] = c.vz[idx] = c.vy[idx] = 0;
+  c.yaw[idx] = Math.atan2(hero.x - x, hero.z - z);
+  c.hpMax[idx] = c.hp[idx] = hpMax;
+  c.st[idx] = ST.ADVANCE; c.stT[idx] = 0; c.type[idx] = 1;
+  c.kind[idx] = 4;                                  // KIND.OFFICER
+  c.token[idx] = 0; c.cd[idx] = 30; c.hs[idx] = 0; c.flash[idx] = 0;
+  c.raiseF[idx] = 0; c.feint[idx] = 0; c.wind[idx] = 0;
+  c.rx[idx] = 0; c.rxV[idx] = 0; c.spinV[idx] = 0; c.bounce[idx] = 0;
+  c.lastHit[idx] = -1; c.kod[idx] = 0; c.hitHeavy[idx] = 0;
+  c.band[idx] = 0; c.pref[idx] = 1.6; c.seated[idx] = 0;
+  c.phase[idx] = Math.random() * 6.28; c.strafe[idx] = Math.random() < 0.5 ? 1 : -1;
+  c.form[idx] = 0; c.squad[idx] = -1;
+  c.scale[idx] = 2.3;                                // view.js 读这个放大体积
+  S.boss = { idx, hpMax, hp: hpMax };
+  bossAI.reset();
+  const num = (S.bossKilled || 0) + 1;
+  const K = bossKitOf(num);
+  bossAI.num = num; bossAI.kit = K.kit; bossAI.kitCd = K.cd; bossAI.enrageAt = K.enrageAt;
+  banner(`BOSS #${num} 降临`, 1700);
+  toast(`BOSS #${num} 技能：<b>${K.label}</b>`);
+  SFX.bossIn();
+  return true;
+}
+function killBoss() {
+  const c = game.crowd;
+  const idx0 = S.boss?.idx;
+  S.bossKilled = (S.bossKilled || 0) + 1;
+  bossAI.reset();
+  if (S.boss) { c.scale[S.boss.idx] = 0; }
+  S.boss = null;
+  hero.hp = Math.min(hero.hpMax, hero.hp + 35);
+  S.shake = 0.9;
+  game.freeze = 12;
+  S.flash = 0.7;
+  const c2 = game.crowd;
+  burst(c2.x[idx0] ?? hero.x, 1.2, c2.z[idx0] ?? hero.z, 60, { speed: 9, life: 1.1, size: 1.5, up: 5.5, colors: [0xff8a5c, 0xffd06a, 0xffffff, 0x9fe8ff] });
+  banner('BOSS 击破！+35 HP', 1500);
+  SFX.bossDie();
+  spawnDrop(c.x[idx0] ?? hero.x, c.z[idx0] ?? hero.z, true);          // boss 必掉装备
+  if (!S.firstBossDown) {
+    S.firstBossDown = true; S.novaUnlocked = true;
+    banner('解锁技能 E · 烈焰冲击（直线）—— 据点野怪出现', 2800);
+    document.getElementById('sk-nova').classList.remove('locked');
+  }
+  levelUp(true);                                     // boss 掉落一次升级
+}
+
+// ================================================================ 横幅
+let bTimer = 0;
+function banner(text, ms) {
+  const el = document.getElementById('banner');
+  el.textContent = text; el.classList.add('on');
+  clearTimeout(bTimer); bTimer = setTimeout(() => el.classList.remove('on'), ms);
+}
+
+// ================================================================ 升级
+const UPGRADES = [
+  { n: '利刃', d: '攻击伤害 +25%', k: 'dmg' },
+  { n: '疾风', d: '攻击速度 +22%', k: 'spd' },
+  { n: '长驱', d: '横扫半径 +15%', k: 'rad' },
+  { n: '轻身', d: '移动速度 +12%', k: 'move' },
+  { n: '铁躯', d: '生命上限 +20 并回满', k: 'hp' },
+  { n: '再生', d: '每秒回血 +0.7', k: 'regen' },
+  { n: '致命', d: '暴击率 +8%（暴击 2.2 倍）', k: 'crit' },
+];
+let offer = [];
+function levelUp(bossFree) {
+  S.lv++; S.xp = 0;
+  S.paused = true;
+  // 保证每次三选一至少含一个输出项（伤害/攻速/范围）—— 纯随机会让 DPS 跟不上敌血成长
+  const DOT = ['dmg', 'spd', 'rad'];
+  const offensive = UPGRADES.filter((u) => DOT.includes(u.k));
+  const rest = UPGRADES.filter((u) => !DOT.includes(u.k));
+  const pick = (arr) => arr.sort(() => Math.random() - 0.5).slice(0, 1)[0];
+  offer = [pick(offensive), ...rest.sort(() => Math.random() - 0.5).slice(0, 2)].sort(() => Math.random() - 0.5);
+  if (AUTO) { pickUpgrade(0); return; }
+  const cards = document.getElementById('cards');
+  cards.innerHTML = '';
+  offer.forEach((u, i) => {
+    const el = document.createElement('div');
+    el.className = 'card';
+    el.innerHTML = `<div class="k">${bossFree ? 'BOSS 奖励' : i + 1 + ' / 3'}</div><div class="n">${u.n}</div>
+      <div class="d">${u.d}</div><div class="lv">已选 ${S.up[u.k]} 次</div>`;
+    el.onclick = () => pickUpgrade(i);
+    cards.appendChild(el);
+  });
+  document.getElementById('levelup').classList.add('on');
+  SFX.level();
+}
+function pickUpgrade(i) {
+  const u = offer[i];
+  if (!u) return;
+  S.up[u.k]++;
+  if (u.k === 'hp') { hero.hpMax += 20; hero.hp = hero.hpMax; }
+  offer = [];
+  document.getElementById('levelup').classList.remove('on');
+  S.paused = false;
+}
+
+// ================================================================ 波次
+function applyWave() {
+  const k = S.wave - 1;
+  CROWD.hp = Math.round(BASE.hp * (1 + 0.22 * k));
+  CROWD.captainHp = Math.round(BASE.captain * (1 + 0.22 * k));
+  CROWD.officerHp = Math.round(BASE.officer * (1 + 0.18 * k));
+  CROWD.engaged = Math.min(190, BASE.engaged + 14 * k);
+  CROWD.waveEvery = [Math.max(18, BASE.waveEvery[0] - 3 * k), Math.max(40, BASE.waveEvery[1] - 7 * k)];
+  banner(`第 ${S.wave} 波`, 1100);
+  // ⚠️ 必须用 sim 帧倒计时，不能用 setTimeout：
+  //    sim 与真实时间解耦，setTimeout 会在快进时漏掉、在暂停时误触发
+  if (S.wave % CFG.bossEvery === 0) S.bossIn = 54;   // 0.9 秒后 Boss 降临
+}
+
+// ================================================================ 生死
+const best = () => { try { return JSON.parse(localStorage.getItem('vh-best') || 'null'); } catch { return null; } };
+function saveBest() {
+  const b = best();
+  const cur = { t: Math.floor(S.t), kills: S.kills, lv: S.lv, wave: S.bestWave };
+  if (!b || cur.kills > b.kills || (cur.kills === b.kills && cur.t > b.t)) {
+    try { localStorage.setItem('vh-best', JSON.stringify(cur)); } catch { /* 隐私模式 */ }
+    return cur;
+  }
+  return b;
+}
+function gameOver() {
+  S.dead = true; S.paused = true; hero.hp = 0;
+  SFX.die();
+  const b = saveBest();
+  document.getElementById('o-time').textContent = fmt(S.t);
+  document.getElementById('o-kills').textContent = S.kills;
+  document.getElementById('o-lv').textContent = S.lv;
+  document.getElementById('o-wave').textContent = S.bestWave;
+  document.getElementById('o-best').textContent = `存活 ${fmt(b.t)} · 击杀 ${b.kills} · 等级 ${b.lv} · 波次 ${b.wave || 1}`;
+  document.getElementById('over').classList.add('on');
+}
+function restart() {
+  Object.assign(S, { t: 0, frame: 0, kills: 0, lv: 1, xp: 0, wave: 1, bestWave: 1, paused: false, dead: false,
+    atkCd: 0, atkFlash: 0, shake: 0, cdSpin: 0, cdDash: 0, cdNova: 0, invuln: 0, boss: null,
+    novaUnlocked: false, firstBossDown: false, monsterT: 0, killsMonster: 0, gear: 0, bossIn: 0,
+    up: { dmg: 0, spd: 0, rad: 0, move: 0, hp: 0, regen: 0, crit: 0, fire: 0, lifesteal: 0 } });
+  hero.x = hero.z = 0; hero.hpMax = CFG.heroHpMax; hero.hp = hero.hpMax; hero.yaw = 0;
+  Object.assign(CROWD, { hp: BASE.hp, captainHp: BASE.captain, officerHp: BASE.officer, engaged: BASE.engaged, waveEvery: [...BASE.waveEvery] });
+  for (const m of monsters) scene.remove(m.g);
+  monsters.length = 0;
+  for (const d of drops) scene.remove(d.g);
+  drops.length = 0;
+  for (const f of burnFields) scene.remove(f.mesh);
+  burnFields.length = 0;
+  for (const p of projs) scene.remove(p.mesh);
+  projs.length = 0;
+  for (const r of healRings) { r.t = 1; r.mesh.material.opacity = 0; }
+  document.getElementById('sk-nova').classList.add('locked');
+  bossAI.reset();
+  S.bossKilled = 0;
+  game.crowd.scale.fill(0);
+  game.crowd.reset();
+  game.crowd.spawnArmy();
+  document.getElementById('over').classList.remove('on');
+}
+document.getElementById('again').onclick = restart;
+const fmt = (s) => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, '0')}`;
+
+// 面向最近敌人（?bot=1 与测试共用）
+function faceNearest() {
+  const c = game.crowd;
+  // 理性打法：Boss 在场且不太远时优先打 Boss（真人看着血条也会这么做）
+  if (S.boss) {
+    const bi = S.boss.idx;
+    const d = Math.hypot(c.x[bi] - hero.x, c.z[bi] - hero.z);
+    if (c.st[bi] !== ST.OFF && c.st[bi] !== ST.DEAD && d < 14) {
+      hero.yaw = Math.atan2(c.x[bi] - hero.x, c.z[bi] - hero.z);
+      return;
+    }
+  }
+  let bi = -1, bd = Infinity;
+  for (let i = 0; i < c.N; i++) {
+    if (c.st[i] === ST.OFF || c.st[i] === ST.DEAD) continue;
+    const d = Math.hypot(c.x[i] - hero.x, c.z[i] - hero.z);
+    if (d < bd) { bd = d; bi = i; }
+  }
+  for (const m of monsters) {
+    const d = Math.hypot(m.x - hero.x, m.z - hero.z);
+    if (d < bd) { bd = d; bi = -1; hero.yaw = Math.atan2(m.x - hero.x, m.z - hero.z); }
+  }
+  if (bi >= 0) hero.yaw = Math.atan2(c.x[bi] - hero.x, c.z[bi] - hero.z);
+}
+
+// 属性面板（每 15 帧刷一次，看得到升级带来的增长）
+function updateStats() {
+  document.getElementById('st-dmg').textContent = Math.round(dmg());
+  document.getElementById('st-rad').textContent = radius().toFixed(1);
+  document.getElementById('st-aspd').textContent = (60 / interval()).toFixed(1);
+  document.getElementById('st-crit').textContent = `${Math.round((CFG.critBase + S.up.crit * 0.08) * 100)}%`;
+  document.getElementById('st-spd').textContent = moveSpeed().toFixed(1);
+  document.getElementById('st-edmg').textContent = CFG.enemyDmg(S.wave, S.lv).toFixed(1);
+}
+
+
+// ================================================================ 野怪（击杀第一个 Boss 后开始出现）
+const MTYPE = {
+  hound:   { name: '獠牙兽', hp: 170, hpW: 0.35, spd: 6.6, dmg: 1.8, range: 2.4, drop: 0.45, scale: 1.00, melee: true },
+  spitter: { name: '吐酸者', hp: 130, hpW: 0.30, spd: 3.2, dmg: 0,   range: 8.5, drop: 0.50, scale: 1.00, ranged: true, fireCd: 130, projDmg: 1.3 },
+  bomber:  { name: '自爆虫', hp: 95,  hpW: 0.28, spd: 9.4, dmg: 0,   range: 2.3, drop: 0.40, scale: 0.90, bomb: true, fuse: 38, blast: 3.4, blastDmg: 2.6 },
+  shaman:  { name: '萨满',   hp: 165, hpW: 0.35, spd: 3.0, dmg: 0,   range: 8.0, drop: 0.65, scale: 1.00, heal: true, healCd: 240, healR: 8.5 },
+};
+const MON = { windup: 20, recover: 32, cd: 70, max: 14 };   // 近战野怪通用时序 + 同屏上限
+const seenType = {};      // 已出现过的野怪类型（首次出现给提示）
+// v2.7：野怪改为「据点」型 —— 固定位置、有领地范围、你不进去它们不追你
+const LAIRS = 6;
+const lairs = [];         // { x, z, r, alive: Set, cd, ring, totem, glow }
+function initLairs() {
+  if (lairs.length) return;
+  for (let i = 0; i < LAIRS; i++) {
+    const a = (i / LAIRS) * Math.PI * 2 + 0.35;
+    const d = 20 + (i % 3) * 9;
+    const x = Math.sin(a) * d, z = Math.cos(a) * d;
+    const ring = new THREE.Mesh(new THREE.RingGeometry(0.94, 1.0, 48),
+      new THREE.MeshBasicMaterial({ color: 0x8a3a4a, transparent: true, opacity: 0.5, side: THREE.DoubleSide, depthWrite: false }));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(x, 0.06, z);
+    ring.scale.setScalar(6.5);
+    scene.add(ring);
+    // 图腾柱（视觉锚点，远处就能看到据点在哪）
+    const totem = new THREE.Mesh(sculpt([
+      { a: [-0.28, 0, -0.28], b: [0.28, 3.4, 0.28], c: 0x3a2430 },
+      { a: [-0.5, 3.4, -0.5], b: [0.5, 4.2, 0.5], c: 0x5c2434 },
+      { a: [-0.22, 4.2, -0.22], b: [0.22, 4.7, 0.22], c: 0xff6a3a },
+    ], 0.12, 0.16), vmat);
+    totem.castShadow = true;
+    totem.position.set(x, 0, z);
+    scene.add(totem);
+    lairs.push({ x, z, r: 6.5, alive: new Set(), cd: 0, ring, totem, glow: 0 });
+  }
+}
+function lairOf(m) { return lairs[m.lair]; }
+function pickLairType() {          // 据点里的野怪同样按 wave 逐步升级
+  const w = S.bestWave;
+  const pool = ['hound', 'hound'];
+  if (w >= 4) pool.push('spitter');
+  if (w >= 5) pool.push('bomber');
+  if (w >= 6) pool.push('shaman', 'hound');
+  return pool[(Math.random() * pool.length) | 0];
+}
+
+const monsters = [];      // { type, g, parts, x, z, yaw, hp, hpMax, st, stT, cd, bob, hurt, fuse, healT }
+const monMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.72, metalness: 0.08, flatShading: true });
+const b1 = (sx, sy, sz, px, py, pz, c) => ({ s: [sx, sy, sz], p: [px, py, pz], c });
+const MG = {
+  // 獠牙兽：四足掠食者
+  hound: {
+    body: boxesGeometry([b1(1.30, 0.85, 2.10, 0, 0.80, 0, 0x5c2434), b1(1.05, 0.30, 1.60, 0, 1.28, -0.1, 0x7a3244),
+      b1(0.30, 0.30, 0.30, 0.42, 1.42, -0.35, 0x9a4458), b1(0.34, 0.80, 0.30, 0, 0.75, -1.35, 0x4a1c28)]),
+    head: boxesGeometry([b1(0.98, 0.80, 0.95, 0, 0, 0, 0x6a2a3a), b1(0.55, 0.42, 0.50, 0, -0.12, 0.62, 0x4a1c28),
+      b1(0.26, 0.14, 0.10, -0.28, 0.14, 0.50, 0xffb43c), b1(0.26, 0.14, 0.10, 0.28, 0.14, 0.50, 0xffb43c),
+      b1(0.14, 0.18, 0.10, -0.28, -0.22, 0.56, 0xe8e0cc), b1(0.14, 0.18, 0.10, 0.28, -0.22, 0.56, 0xe8e0cc)]),
+    leg: boxesGeometry([b1(0.28, 0.62, 0.28, 0, -0.31, 0, 0x4a1c28), b1(0.34, 0.16, 0.40, 0, -0.66, 0.06, 0x2e1018)]),
+  },
+  // 吐酸者：漂浮的酸囊 + 垂须
+  spitter: {
+    body: boxesGeometry([b1(1.20, 1.05, 1.20, 0, 0, 0, 0x2f5a2a), b1(0.85, 0.45, 0.85, 0, 0.62, 0, 0x437a38),
+      b1(0.42, 0.42, 0.42, 0, 0.10, 0.66, 0x9fe83c), b1(0.30, 0.16, 0.16, -0.34, 0.34, 0.56, 0x1a1a12),
+      b1(0.30, 0.16, 0.16, 0.34, 0.34, 0.56, 0x1a1a12)]),
+    leg: boxesGeometry([b1(0.22, 0.70, 0.22, 0, -0.35, 0, 0x3f6a34)]),
+  },
+  // 自爆虫：圆甲壳 + 顶部引信
+  bomber: {
+    body: boxesGeometry([b1(1.15, 0.80, 1.25, 0, 0, 0, 0x4a2a12), b1(0.90, 0.35, 0.95, 0, 0.48, 0, 0x6a3f1a),
+      b1(0.28, 0.30, 0.28, 0, 0.72, 0, 0xff5a2a), b1(0.16, 0.18, 0.16, 0, 0.92, 0, 0xffd06a),
+      b1(0.26, 0.14, 0.10, -0.30, 0.18, 0.62, 0xff3a1a), b1(0.26, 0.14, 0.10, 0.30, 0.18, 0.62, 0xff3a1a)]),
+    leg: boxesGeometry([b1(0.20, 0.40, 0.20, 0, -0.28, 0, 0x33190a)]),
+  },
+  // 萨满：兜帽法袍 + 发光法杖
+  shaman: {
+    body: boxesGeometry([b1(0.95, 1.35, 0.75, 0, 0, 0, 0x2a2a52), b1(0.80, 0.55, 0.68, 0, 0.78, 0, 0x3a3a72),
+      b1(0.62, 0.42, 0.55, 0, 0.60, 0.42, 0x1a1230), b1(0.30, 0.34, 0.75, 0.62, 0.30, 0.15, 0x6a4a2a),
+      b1(0.26, 0.26, 0.26, 0.62, 0.92, 0.15, 0x7fe3d0)]),
+    head: boxesGeometry([b1(0.72, 0.60, 0.70, 0, 0, 0, 0x2a2a52), b1(0.44, 0.14, 0.12, 0, 0.02, 0.38, 0x7fe3d0)]),
+  },
+};
+// 酸液弹（吐酸者）
+const projs = [];
+const projGeo = new THREE.SphereGeometry(0.22, 10, 8);
+const projMat = new THREE.MeshBasicMaterial({ color: 0x9fe83c });
+function spawnProj(m, T) {
+  const dx = hero.x - m.x, dz = hero.z - m.z, d = Math.hypot(dx, dz) || 1;
+  const mesh = new THREE.Mesh(projGeo, projMat);
+  mesh.position.set(m.x + dx / d * 0.8, 1.1, m.z + dz / d * 0.8);
+  scene.add(mesh);
+  projs.push({ x: mesh.position.x, y: 1.1, z: mesh.position.z, vx: dx / d * 11, vz: dz / d * 11, mesh, life: 2.6, dmgMul: T.projDmg });
+}
+function updateProjs(dt) {
+  for (let i = projs.length - 1; i >= 0; i--) {
+    const p = projs[i];
+    p.x += p.vx * dt; p.z += p.vz * dt; p.life -= dt;
+    p.mesh.position.set(p.x, p.y + Math.sin(p.life * 22) * 0.06, p.z);
+    if (Math.hypot(p.x - hero.x, p.z - hero.z) < 0.95) {
+      damageHero(p.dmgMul, false);
+      burst(p.x, 1.0, p.z, 9, { speed: 2.6, life: 0.45, size: 0.85, up: 2.6, rise: true, colors: [0x9fe83c, 0x5a9a2a] });
+      scene.remove(p.mesh); projs.splice(i, 1); continue;
+    }
+    if (p.life <= 0) { scene.remove(p.mesh); projs.splice(i, 1); }
+  }
+}
+
+// 治疗脉冲（萨满）：环状视觉 + 治疗野怪与军官/Boss
+const healRings = [];
+for (let i = 0; i < 4; i++) {
+  const mesh = new THREE.Mesh(new THREE.RingGeometry(0.86, 1.0, 40),
+    new THREE.MeshBasicMaterial({ color: 0x7fe3a0, transparent: true, opacity: 0, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+  mesh.rotation.x = -Math.PI / 2;
+  scene.add(mesh);
+  healRings.push({ mesh, t: 1, r: 1 });
+}
+function healPulse(m, T) {
+  let n = 0;
+  for (const o of monsters) {
+    if (o === m || o.hp <= 0) continue;
+    if (Math.hypot(o.x - m.x, o.z - m.z) <= T.healR) { o.hp = Math.min(o.hpMax, o.hp + o.hpMax * 0.09); n++; }
+  }
+  const c = game.crowd;
+  for (let k = c.grunts; k < c.N; k++) {                 // 只治军官/Boss（治普通兵会太残暴）
+    if (c.st[k] === ST.OFF || c.st[k] === ST.DEAD) continue;
+    if (Math.hypot(c.x[k] - m.x, c.z[k] - m.z) <= T.healR) { c.hp[k] = Math.min(c.hpMax[k], c.hp[k] + c.hpMax[k] * 0.05); n++; }
+  }
+  const r = healRings.find((v) => v.t >= 1) || healRings[0];
+  r.t = 0; r.r = T.healR; r.mesh.position.set(m.x, 0.1, m.z);
+  tone(600, 0.18, 'sine', 0.035, 300);
+}
+function updateHealRings(dt) {
+  for (const r of healRings) {
+    if (r.t >= 1) { r.mesh.material.opacity = 0; continue; }
+    r.t += dt;
+    r.mesh.scale.setScalar(r.r * (0.2 + r.t * 1.1));
+    r.mesh.material.opacity = Math.max(0, 0.5 * (1 - r.t));
+  }
+}
+
+function monsterHp() { return Math.round(MON.hp * (1 + MON.hpPerWave * (S.wave - 1))); }
+function spawnInLair(L, type) {
+  if (L.alive.size >= 5) return;
+  type = type || pickLairType();
+  const a = Math.random() * Math.PI * 2, d = Math.random() * (L.r - 1.5);
+  const x = L.x + Math.sin(a) * d, z = L.z + Math.cos(a) * d;
+  spawnMonsterAt(type, x, z, lairs.indexOf(L));
+}
+function pickMonsterType() {
+  const w = S.bestWave;
+  const pool = ['hound', 'hound', 'hound'];
+  if (w >= 4) pool.push('spitter');
+  if (w >= 5) pool.push('spitter', 'bomber');
+  if (w >= 6) pool.push('shaman');
+  return pool[(Math.random() * pool.length) | 0];
+}
+function spawnMonster(type) { spawnMonsterAt(type, 0, 0, -1, true); }
+function spawnMonsterAt(type, sx, sz, lairIdx, randomPos) {
+  if (monsters.length >= 40) return;
+  type = type || pickMonsterType();
+  const T = MTYPE[type];
+  if (!seenType[type]) { seenType[type] = 1; toast(`新野怪：<b>${T.name}</b>`); }
+  let x = sx, z = sz;
+  if (randomPos || lairIdx < 0) {
+    const a = Math.random() * Math.PI * 2, d = 17 + Math.random() * 6;
+    x = hero.x + Math.sin(a) * d; z = hero.z + Math.cos(a) * d;
+  }
+  const g = new THREE.Group();
+  const parts = [];
+  const mk = (geo, px, py, pz) => { const m = new THREE.Mesh(geo, monMat); m.position.set(px, py, pz); m.castShadow = true; g.add(m); parts.push(m); return m; };
+  const G = MG[type];
+  mk(G.body, 0, 0, 0);
+  if (G.head) mk(G.head, 0, 0.92, 1.32);
+  if (G.leg) {
+    if (type === 'hound') for (const [lx, lz] of [[-0.52, 0.72], [0.52, 0.72], [-0.52, -0.72], [0.52, -0.72]]) mk(G.leg, lx, 0.68, lz);
+    else if (type === 'bomber') for (const [lx, lz] of [[-0.42, 0.48], [0.42, 0.48], [-0.42, -0.48], [0.42, -0.48]]) mk(G.leg, lx, 0.42, lz);
+    else for (const [lx, lz] of [[-0.3, 0.3], [0.3, 0.3], [-0.3, -0.3], [0.3, -0.3]]) mk(G.leg, lx, -0.55, lz);
+  }
+  g.scale.setScalar(T.scale);
+  g.position.set(x, 0, z);
+  scene.add(g);
+  const hp = Math.round(T.hp * (1 + T.hpW * (S.bestWave - 1)));
+  const m = { type, g, parts, x, z, yaw: 0, hp, hpMax: hp, st: 'idle', stT: 0, cd: T.fireCd ? T.fireCd : 0,
+    bob: Math.random() * 6.28, hurt: 0, fuse: -1, healT: T.healCd ? 40 : 0, lair: lairIdx, homeA: Math.atan2(x - (lairIdx >= 0 ? lairs[lairIdx].x : x), z - (lairIdx >= 0 ? lairs[lairIdx].z : z)) };
+  monsters.push(m);
+  if (lairIdx >= 0) lairs[lairIdx].alive.add(m);
+}
+function updateMonsters(dt) {
+  for (let i = monsters.length - 1; i >= 0; i--) {
+    const m = monsters[i], T = MTYPE[m.type];
+    const L = m.lair >= 0 ? lairs[m.lair] : null;
+    const dx = hero.x - m.x, dz = hero.z - m.z, d = Math.hypot(dx, dz) || 1e-6;
+    m.yaw = Math.atan2(dx, dz);
+    if (m.cd > 0) m.cd -= dt * 60;
+    if (m.hurt > 0) m.hurt -= dt;
+
+    // v2.7 领地逻辑：只有玩家进圈，据点野怪才会理你
+    if (L) {
+      const heroIn = Math.hypot(hero.x - L.x, hero.z - L.z) <= L.r + 1.0;
+      if (!heroIn) {
+        // 未激活：在领地内缓慢游荡 + 被拉回领地
+        m.st = 'idle'; m.fuse = -1;
+        const hx = L.x - m.x, hz = L.z - m.z, hd = Math.hypot(hx, hz) || 1e-6;
+        if (hd > L.r - 1.2) { m.x += hx / hd * T.spd * 0.5 * dt; m.z += hz / hd * T.spd * 0.5 * dt; }
+        else {
+          m.wt = (m.wt || 0) - dt;
+          if (m.wt <= 0) { m.wt = 1.6 + Math.random() * 2.4; const a = Math.random() * 6.28; m.wx = Math.sin(a) * 1.3; m.wz = Math.cos(a) * 1.3; }
+          m.x += (m.wx || 0) * dt; m.z += (m.wz || 0) * dt;
+        }
+        m.bob += dt * 2.2;
+        m.g.position.set(m.x, (T.ranged || T.heal ? 1.05 : 0) + Math.sin(m.bob) * 0.07, m.z);
+        m.g.rotation.y = m.yaw;
+        m.g.scale.setScalar(T.scale);
+        L.glow = Math.max(0, L.glow - dt * 2);
+        L.ring.material.opacity = 0.35 + L.glow * 0.5;
+        L.ring.material.color.setHex(L.glow > 0.05 ? 0xff5a3a : 0x8a3a4a);
+        if (m.hp <= 0) { killMonster(i, m, T); }
+        continue;
+      }
+      L.glow = 1;   // 激活：据点变红
+    }
+
+    // ---- 行为分派
+    if (T.melee) {
+      // 獠牙兽：追击 → 蓄力前倾 → 扑咬 → 硬直
+      if (m.st === 'chase') {
+        if (d > T.range) { m.x += dx / d * T.spd * dt; m.z += dz / d * T.spd * dt; }
+        else if (m.cd <= 0) { m.st = 'windup'; m.stT = 0; }
+      } else if (m.st === 'windup') {
+        m.stT += dt * 60;
+        if (m.stT >= MON.windup) { damageHero(T.dmg, true); m.st = 'recover'; m.stT = 0; }
+      } else {
+        m.stT += dt * 60;
+        if (m.stT >= MON.recover) { m.st = 'chase'; m.cd = MON.cd; }
+      }
+      m.g.rotation.x = m.st === 'windup' ? -0.22 : 0;
+    } else if (T.ranged) {
+      // 吐酸者：保持距离 + 喷酸液弹
+      if (d > T.range + 1.5) { m.x += dx / d * T.spd * dt; m.z += dz / d * T.spd * dt; }
+      else if (d < T.range - 2.5) { m.x -= dx / d * T.spd * dt; m.z -= dz / d * T.spd * dt; }
+      if (m.cd <= 0 && d < T.range + 3) { spawnProj(m, T); m.cd = T.fireCd; }
+      m.g.rotation.x = m.cd > T.fireCd - 18 ? -0.3 : 0;      // 起手前倾
+    } else if (T.bomb) {
+      // 自爆虫：极速冲脸 → 引信 → 爆炸
+      if (m.fuse < 0) {
+        m.x += dx / d * T.spd * dt; m.z += dz / d * T.spd * dt;
+        if (d <= T.range) m.fuse = T.fuse;
+      } else {
+        m.fuse -= dt * 60;
+        if (m.fuse <= 0) { explodeBomber(m, T); continue; }   // 已处理死亡
+      }
+    } else if (T.heal) {
+      // 萨满：保持距离 + 定期治疗
+      if (d > T.range + 2) { m.x += dx / d * T.spd * dt; m.z += dz / d * T.spd * dt; }
+      else if (d < T.range - 3) { m.x -= dx / d * T.spd * dt; m.z -= dz / d * T.spd * dt; }
+      m.healT -= dt * 60;
+      if (m.healT <= 0) { m.healT = T.healCd; healPulse(m, T); }
+    }
+
+    // 硬 leash：无论如何不出领地
+    if (L) {
+      const lx = m.x - L.x, lz = m.z - L.z, ld = Math.hypot(lx, lz);
+      if (ld > L.r) { m.x = L.x + lx / ld * L.r; m.z = L.z + lz / ld * L.r; }
+    }
+
+    // ---- 表现
+    m.bob += dt * (T.ranged || T.heal ? 3 : m.st === 'chase' ? 15 : 6);
+    const floatY = T.ranged || T.heal ? 1.05 + Math.sin(m.bob) * 0.16 : Math.abs(Math.sin(m.bob)) * 0.09;
+    m.g.position.set(m.x, floatY, m.z);
+    m.g.rotation.y = m.yaw;
+    if (m.fuse >= 0) {                                        // 引信：快速脉动 + 变红
+      const k = 1 + Math.sin(m.fuse * 0.9) * 0.18;
+      m.g.scale.setScalar(T.scale * k);
+    } else if (m.hurt > 0) {
+      m.g.scale.setScalar(T.scale * 1.08);
+    } else {
+      m.g.scale.setScalar(T.scale);
+    }
+    if (m.type === 'hound') m.parts.slice(-4).forEach((l, k) => { l.rotation.x = Math.sin(m.bob + k * Math.PI / 2) * 0.75; });
+    else if (m.type === 'bomber') m.parts.slice(-4).forEach((l, k) => { l.rotation.x = Math.sin(m.bob + k * Math.PI / 2) * 0.5; });
+    else if (T.ranged) m.parts.slice(-4).forEach((l, k) => { l.rotation.x = Math.sin(m.bob + k) * 0.35; });
+
+    if (m.hp <= 0) killMonster(i, m, T);
+  }
+}
+
+// 野怪死亡（含巢穴清剿奖励）
+function killMonster(i, m, T) {
+  burst(m.x, 0.9, m.z, 26, { speed: 5.5, life: 0.7, size: 1.2, up: 4, colors: [0xff6a4a, 0x9a4458, 0xffd06a] });
+  scene.remove(m.g);
+  monsters.splice(i, 1);
+  S.kills++; S.killsMonster++;
+  S.xp += 6;
+  SFX.bossDie();
+  if (Math.random() < T.drop) spawnDrop(m.x, m.z);
+  // 巢穴清剿：全灭 → 必掉一件 + 进入重置倒计时
+  if (m.lair >= 0) {
+    const L = lairs[m.lair];
+    L.alive.delete(m);
+    if (L.alive.size === 0 && L.cd <= 0) {
+      L.cd = 45 * 60;
+      spawnDrop(L.x, L.z, true);
+      toast('🏴 <b>据点已清剿</b> — 必掉装备，45 秒后重新集结');
+      banner('据点清剿', 1200);
+      SFX.bossDie();
+    }
+  }
+  if (S.xp >= CFG.xpPerLevel(S.lv)) levelUp();
+}
+
+// 自爆：对玩家 + 友军 + 其他野怪都造成伤害（近战兵成片倒下，可当战术利用）
+function explodeBomber(m, T) {
+  const R = T.blast;
+  burst(m.x, 0.6, m.z, 54, { speed: 9, life: 0.75, size: 1.7, up: 5.4, colors: [0xff5a2a, 0xffb43c, 0xffffff, 0xff3a1a] });
+  S.shake = Math.max(S.shake, 0.7);
+  game.freeze = 6;
+  S.flash = Math.max(S.flash, 0.14);      // 爆炸密集，闪白要小（否则叠加成常亮白屏）
+  SFX.bossDie();
+  if (Math.hypot(m.x - hero.x, m.z - hero.z) < R) damageHero(T.blastDmg, true);
+  const c = game.crowd;
+  for (let k = 0; k < c.N; k++) {
+    if (c.st[k] === ST.OFF || c.st[k] === ST.DEAD) continue;
+    if (Math.hypot(c.x[k] - m.x, c.z[k] - m.z) <= R) hurt(k, 110, true);
+  }
+  for (const o of monsters) {
+    if (o === m || o.hp <= 0) continue;
+    if (Math.hypot(o.x - m.x, o.z - m.z) <= R) { o.hp -= 130; o.hurt = 0.2; }
+  }
+  const idx = monsters.indexOf(m);
+  if (idx >= 0) {
+    scene.remove(m.g); monsters.splice(idx, 1);
+    S.kills++; S.killsMonster++;
+    if (Math.random() < T.drop) spawnDrop(m.x, m.z);
+  }
+}
+
+// ================================================================ 掉落装备
+const EQUIP = [
+  { icon: '⚔️', name: '血刃', desc: '击杀回复 2 生命', apply: () => { S.up.lifesteal += 1; } },
+  { icon: '🛡️', name: '铁甲', desc: '生命上限 +25 并回满', apply: () => { hero.hpMax += 25; hero.hp = hero.hpMax; } },
+  { icon: '👟', name: '战靴', desc: '移动速度 +12%', apply: () => { S.up.move++; } },
+  { icon: '🔥', name: '火符', desc: '火焰技能伤害 +35%', apply: () => { S.up.fire++; } },
+  { icon: '💎', name: '锐石', desc: '暴击率 +8%', apply: () => { S.up.crit++; } },
+  { icon: '⏳', name: '时砂', desc: '攻击速度 +22%', apply: () => { S.up.spd++; } },
+  { icon: '❤️', name: '护符', desc: '每秒回血 +1', apply: () => { S.up.regen += 1.5; } },
+  { icon: '🌟', name: '狂骨', desc: '攻击伤害 +25%', apply: () => { S.up.dmg++; } },
+];
+const drops = [];
+const dropBox = new THREE.BoxGeometry(0.42, 0.42, 0.42);
+const dropGeoRing = new THREE.RingGeometry(0.52, 0.66, 24);
+function spawnDrop(x, z, force) {
+  const e = EQUIP[(Math.random() * EQUIP.length) | 0];
+  const g = new THREE.Group();
+  const box = new THREE.Mesh(dropBox, new THREE.MeshStandardMaterial({ color: 0xffcf7a, emissive: 0x7a4a00, roughness: 0.35, metalness: 0.4 }));
+  box.castShadow = true;
+  g.add(box);
+  const ring = new THREE.Mesh(dropGeoRing, new THREE.MeshBasicMaterial({ color: 0xffd06a, transparent: true, opacity: 0.55, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = -0.55;
+  g.add(ring);
+  g.position.set(x, 0.9, z);
+  scene.add(g);
+  drops.push({ g, x, z, e, bob: Math.random() * 6.28, life: force ? 1 : 0 });
+}
+function updateDrops(dt) {
+  for (let i = drops.length - 1; i >= 0; i--) {
+    const d = drops[i];
+    d.bob += dt * 3.2; d.life += dt;
+    // 磁吸：5 米内自动飞向玩家（否则掉落物躺在地上没人捡）
+    const ddx = hero.x - d.x, ddz = hero.z - d.z, dd = Math.hypot(ddx, ddz);
+    if (dd < 5.5 && dd > 0.1) { const pull = Math.min(9, 26 / Math.max(dd, 0.6)) * dt; d.x += ddx / dd * pull; d.z += ddz / dd * pull; }
+    d.g.position.set(d.x, 0.85 + Math.sin(d.bob) * 0.13, d.z);
+    d.g.rotation.y += dt * 1.4;
+    if (Math.hypot(d.x - hero.x, d.z - hero.z) < 1.7) {
+      d.e.apply();
+      S.gear++;
+      toast(`${d.e.icon} <b>${d.e.name}</b> — ${d.e.desc}`);
+      SFX.level();
+      burst(d.x, 0.9, d.z, 16, { speed: 3.2, life: 0.55, size: 1.0, up: 3.4, rise: true, colors: [0xffd06a, 0xfff3c4, 0xffb43c] });
+      scene.remove(d.g);
+      drops.splice(i, 1);
+    }
+  }
+}
+
+// ================================================================ 第三技能：烈焰新星（第一个 Boss 掉落解锁）
+const burnFields = [];
+const burnGeo = new THREE.RingGeometry(0.3, 1.0, 40);
+// 直线火焰冲击用的条带网格池
+const beamPool = [];
+for (let i = 0; i < 4; i++) {
+  const gp = new THREE.Group();
+  const mesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+    new THREE.MeshBasicMaterial({ color: 0xff8a2a, transparent: true, opacity: 0, side: THREE.DoubleSide,
+      depthWrite: false, blending: THREE.AdditiveBlending }));
+  mesh.rotation.x = -Math.PI / 2;
+  gp.add(mesh); scene.add(gp);
+  beamPool.push({ gp, mesh, t: 1, dur: 1, half: 1, len: 1, bright: 0.4 });
+}
+function useBeam(x, z, yaw, half, len, dur, bright) {
+  const b = beamPool.find((v) => v.t >= 1) || beamPool[0];
+  b.t = 0; b.dur = dur; b.half = half; b.len = len; b.bright = bright;
+  b.gp.position.set(x + Math.sin(yaw) * len / 2, 0.07, z + Math.cos(yaw) * len / 2);
+  b.gp.rotation.y = yaw;
+  b.mesh.scale.set(half * 2, len, 1);
+  return b;
+}
+function updateBeams(dt) {
+  for (const b of beamPool) {
+    if (b.t >= 1) { b.mesh.material.opacity = 0; continue; }
+    b.t += dt / b.dur;
+    b.mesh.material.opacity = Math.max(0, b.bright * (1 - b.t));
+  }
+}
+
+function doNova() {
+  if (!S.novaUnlocked || S.paused || S.dead || S.cdNova > 0) return;
+  S.cdNova = SKILL.nova.cd;
+  const dirx = Math.sin(hero.yaw), dirz = Math.cos(hero.yaw);
+  const LEN = SKILL.nova.len, HALF = SKILL.nova.half;
+  const mul = 1 + 0.35 * S.up.fire;
+  const d0 = dmg() * SKILL.nova.dmg * mul;
+  // 直线判定：沿线方向 0..LEN、垂直距离 ≤ HALF
+  const inBeam = (x, z, extra) => {
+    const dx = x - hero.x, dz = z - hero.z;
+    const along = dx * dirx + dz * dirz;
+    if (along < -1.5 || along > LEN + extra) return false;
+    return Math.abs(dx * dirz - dz * dirx) <= HALF + extra;
+  };
+  const c = game.crowd;
+  let hits = 0;
+  for (let i = 0; i < c.N; i++) {
+    if (c.st[i] === ST.OFF || c.st[i] === ST.DEAD) continue;
+    if (!inBeam(c.x[i], c.z[i], 0.4)) continue;
+    hits++;
+    hurt(i, d0, true);
+    if (c.st[i] !== ST.DEAD) { c.x[i] += dirx * 1.6; c.z[i] += dirz * 1.6; }   // 沿射线方向推开
+  }
+  for (const m of monsters) {
+    if (!inBeam(m.x, m.z, 0.6)) continue;
+    m.hp -= d0; m.hurt = 0.2;
+    m.x += dirx * 2.2; m.z += dirz * 2.2;
+  }
+  // 地面灼烧带（沿这条线的矩形，持续 4.5 秒）
+  const strip = useBeam(hero.x, hero.z, hero.yaw, HALF, LEN, SKILL.nova.burn, 0.34);
+  burnFields.push({ beam: true, x: hero.x, z: hero.z, dirx, dirz, len: LEN, half: HALF,
+    until: SKILL.nova.burn, next: 0, dmg: d0 * 0.3, strip });
+  // 冲击瞬间的亮条 + 沿线火焰粒子
+  useBeam(hero.x, hero.z, hero.yaw, HALF * 0.75, LEN, 0.35, 0.75);
+  for (let k = 0; k < 22; k++) {
+    const along = Math.random() * LEN;
+    const px = hero.x + dirx * along + (Math.random() - 0.5) * HALF * 2;
+    const pz = hero.z + dirz * along + (Math.random() - 0.5) * HALF * 2;
+    burst(px, 0.3, pz, 5, { speed: 2.5, life: 0.6, size: 1.5, up: 4.5, rise: true, colors: [0xff7a24, 0xffb43c, 0xffe08a] });
+  }
+  game.freeze = 10;
+  S.shake = SKILL.nova.shake;
+  S.flash = 0.3;
+  S.heroSpin = 0.3;
+  SFX.bossDie();
+  SFX.spin();
+}
+
+function updateBurn(dt) {
+  for (let i = burnFields.length - 1; i >= 0; i--) {
+    const f = burnFields[i];
+    f.until -= dt; f.born += dt; f.next -= dt;
+    if (f.beam) {
+      if (f.strip) f.strip.mesh.material.opacity = Math.max(0, 0.3 * Math.min(1, f.until) * (0.75 + Math.sin(f.born * 8) * 0.25));
+      const inB = (x, z, extra) => {
+        const dx = x - f.x, dz = z - f.z;
+        const along = dx * f.dirx + dz * f.dirz;
+        if (along < -1.5 || along > f.len + extra) return false;
+        return Math.abs(dx * f.dirz - dz * f.dirx) <= f.half + extra;
+      };
+      if (f.next <= 0) {
+        f.next = 0.35;
+        const c = game.crowd;
+        for (let k = 0; k < c.N; k++) {
+          if (c.st[k] === ST.OFF || c.st[k] === ST.DEAD) continue;
+          if (inB(c.x[k], c.z[k], 0.3)) hurt(k, f.dmg, false);
+        }
+        for (const m of monsters) if (inB(m.x, m.z, 0.5)) { m.hp -= f.dmg; m.hurt = 0.15; }
+        for (let k = 0; k < 3; k++) {
+          const along = Math.random() * f.len;
+          burst(f.x + f.dirx * along + (Math.random() - 0.5) * f.half * 2, 0.2,
+            f.z + f.dirz * along + (Math.random() - 0.5) * f.half * 2, 3,
+            { speed: 1.4, life: 0.5, size: 1.3, up: 3.8, rise: true, colors: [0xff7a24, 0xffb43c] });
+        }
+      }
+      if (f.until <= 0) burnFields.splice(i, 1);      // 条带由 beamPool 自己淡出
+      continue;
+    }
+    f.mesh.material.opacity = Math.max(0, 0.4 * Math.min(1, f.until) * (0.7 + Math.sin(f.born * 9) * 0.3));
+    f.mesh.scale.setScalar(f.r * (1 + Math.sin(f.born * 5) * 0.03));
+    if (f.next <= 0) {
+      f.next = 0.35;
+      const c = game.crowd;
+      for (let k = 0; k < c.N; k++) {
+        if (c.st[k] === ST.OFF || c.st[k] === ST.DEAD) continue;
+        if (Math.hypot(c.x[k] - f.x, c.z[k] - f.z) <= f.r) hurt(k, f.dmg, false);
+      }
+      for (const m of monsters) if (Math.hypot(m.x - f.x, m.z - f.z) <= f.r) { m.hp -= f.dmg; m.hurt = 0.15; }
+      if (Math.random() < 0.5) burst(f.x + (Math.random() - 0.5) * f.r * 1.6, 0.2, f.z + (Math.random() - 0.5) * f.r * 1.6, 3,
+        { speed: 1.2, life: 0.5, size: 1.2, up: 3.6, rise: true, colors: [0xff7a24, 0xffb43c] });
+    }
+    if (f.until <= 0) { scene.remove(f.mesh); burnFields.splice(i, 1); }
+  }
+}
+
+// 拾取提示
+let toastTimer = 0;
+function toast(html) {
+  const el = document.getElementById('toast');
+  el.innerHTML = html; el.classList.add('on');
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => el.classList.remove('on'), 2200);
+}
+
+// ================================================================ Boss 技能（v2.8）
+// 原来的 Boss 只是「血厚的小兵」—— 会走过来挨打。现在它有三种技能 + 狂暴：
+//   冲锋：0.7s 蓄力（地面红线段预警）→ 22 速度直线突进，撞到打 4 倍伤害并击退
+//   践踏：0.6s 蓄力（红圈预警）→ 5 米范围震地，圈内吃 5 倍伤害
+//   召唤：0.5s 咆哮 → 召 3 只野怪（它们不受据点限制，直接追你）
+//   狂暴：血量 <35% → 移速 +40% + 伤害 ×1.25（视觉：本体变红）
+// v2.9：Boss 技能按「第几个 Boss」逐个解锁 —— 每场 Boss 战教一个新机制
+//   #1（wave 3）只有冲锋｜#2（wave 6）+践踏｜#3（wave 9）+召唤｜#4 起技能更快 + 更早狂暴
+const BOSS_KITS = [
+  { n: 1, kit: ['charge'], cd: 220, enrageAt: 0.30, label: '冲锋' },
+  { n: 2, kit: ['charge', 'slam'], cd: 210, enrageAt: 0.30, label: '冲锋 / 践踏' },
+  { n: 3, kit: ['charge', 'slam', 'summon'], cd: 200, enrageAt: 0.32, label: '冲锋 / 践踏 / 召唤' },
+  { n: 4, kit: ['charge', 'charge', 'slam', 'summon'], cd: 150, enrageAt: 0.40, label: '冲锋×2 / 践踏 / 召唤（技能更快、更早狂暴）' },
+];
+const bossKitOf = (num) => BOSS_KITS[Math.min(BOSS_KITS.length - 1, Math.max(0, num - 1))];
+
+const bossAI = {
+  mode: 'chase', t: 0, cd: 210, aimX: 0, aimZ: 0, aimYaw: 0, enraged: false, kit: ['charge'], num: 1, enrageAt: 0.3,
+  reset() { this.mode = 'chase'; this.t = 0; this.cd = 210; this.enraged = false; telegraph.hide(); },
+  run(c, bi) {
+    const T = this;
+    const dx = hero.x - c.x[bi], dz = hero.z - c.z[bi], d = Math.hypot(dx, dz) || 1e-6;
+    if (!T.enraged && c.hp[bi] <= c.hpMax[bi] * T.enrageAt) {
+      T.enraged = true;
+      banner('BOSS 狂暴', 1200);
+      tone(90, 0.6, 'sawtooth', 0.07, 40);
+      burst(c.x[bi], 1.4, c.z[bi], 40, { speed: 7, life: 0.8, size: 1.4, up: 5, colors: [0xff3a1a, 0xff8a5c, 0xffffff] });
+      game.freeze = 8; S.shake = 0.6; S.flash = 0.25;
+    }
+    const spdMul = T.enraged ? 1.4 : 1;
+
+    if (T.mode === 'chase') {
+      T.cd -= 1;
+      if (T.cd <= 0 && d < 13) {
+        T.mode = T.kit[(Math.random() * T.kit.length) | 0];   // v2.9：只从本场已解锁的技能里挑
+        T.t = 0;
+        T.aimX = hero.x; T.aimZ = hero.z;
+        T.aimYaw = Math.atan2(dx, dz);
+        if (T.mode === 'charge') telegraph.line(c.x[bi], c.z[bi], T.aimYaw, 16);
+        else if (T.mode === 'slam') telegraph.ring(c.x[bi], c.z[bi], 5);
+        else banner('BOSS 召唤', 900);
+        tone(T.mode === 'summon' ? 180 : 140, 0.35, 'sawtooth', 0.06, -40);
+      }
+      return;
+    }
+
+    T.t++;
+    if (T.mode === 'charge') {
+      if (T.t < 42) {                                    // 蓄力：站定抖一下
+        c.x[bi] += Math.sin(T.t * 1.5) * 0.012;
+        telegraph.progress(T.t / 42);
+      } else if (T.t < 72) {                             // 突进：直接改位置（setbypass crowd 逻辑）
+        c.x[bi] += Math.sin(T.aimYaw) * 22 * STEP;
+        c.z[bi] += Math.cos(T.aimYaw) * 22 * STEP;
+        burst(c.x[bi], 0.3, c.z[bi], 3, { speed: 2.5, life: 0.35, size: 1.1, up: 2, colors: [0xff8a5c, 0xffd06a] });
+        if (Math.hypot(hero.x - c.x[bi], hero.z - c.z[bi]) < 2.0) {
+          damageHero(4.0 * (T.enraged ? 1.25 : 1), true);
+          const kx = hero.x - c.x[bi], kz = hero.z - c.z[bi], kd = Math.hypot(kx, kz) || 1;
+          hero.x += kx / kd * 3.2; hero.z += kz / kd * 3.2;      // 击退玩家
+          S.shake = 1.0; S.flash = 0.35;
+          T.t = 72;
+        }
+      } else {
+        T.mode = 'chase'; T.cd = T.kitCd; telegraph.hide();
+      }
+    } else if (T.mode === 'slam') {
+      if (T.t < 36) { telegraph.progress(T.t / 36); }
+      else if (T.t === 36) {
+        burst(c.x[bi], 0.5, c.z[bi], 46, { speed: 8, life: 0.7, size: 1.6, up: 4, colors: [0xff8a5c, 0xffd06a, 0xffffff] });
+        S.shake = 1.0; game.freeze = 8; S.flash = 0.3;
+        tone(70, 0.5, 'square', 0.08, -20);
+        if (Math.hypot(hero.x - c.x[bi], hero.z - c.z[bi]) < 5.2) damageHero(5.0 * (T.enraged ? 1.25 : 1), true);
+        // 震地也能打死小兵（正面利用）
+        for (let k = 0; k < c.N; k++) {
+          if (c.st[k] === ST.OFF || c.st[k] === ST.DEAD || k === bi) continue;
+          if (Math.hypot(c.x[k] - c.x[bi], c.z[k] - c.z[bi]) < 5) hurt(k, 120, true);
+        }
+        telegraph.hide();
+      } else { T.mode = 'chase'; T.cd = T.kitCd + 40; }
+    } else if (T.mode === 'summon') {
+      if (T.t === 30) {
+        for (let k = 0; k < 3; k++) {
+          const a = Math.random() * 6.28, r = 2.5 + Math.random() * 2;
+          spawnMonsterAt(pickMonsterType(), c.x[bi] + Math.sin(a) * r, c.z[bi] + Math.cos(a) * r, -1);
+        }
+        burst(c.x[bi], 1.0, c.z[bi], 30, { speed: 6, life: 0.7, size: 1.4, up: 4.5, colors: [0x9a4458, 0xff6a4a] });
+        toast('BOSS 召唤了野怪');
+      }
+      if (T.t > 45) { T.mode = 'chase'; T.cd = T.kitCd + 20; }
+    }
+  },
+};
+
+// Boss 技能预警（地面红线段 / 红圈）
+const telegraph = {
+  lineMesh: null, ringMesh: null,
+  line(x, z, yaw, len) {
+    if (!this.lineMesh) {
+      this.lineMesh = new THREE.Mesh(new THREE.PlaneGeometry(1, 1),
+        new THREE.MeshBasicMaterial({ color: 0xff3a1a, transparent: true, opacity: 0.3, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+      this.lineMesh.rotation.x = -Math.PI / 2;
+      scene.add(this.lineMesh);
+    }
+    this.lineMesh.position.set(x + Math.sin(yaw) * len / 2, 0.12, z + Math.cos(yaw) * len / 2);
+    this.lineMesh.rotation.z = -yaw;
+    this.lineMesh.scale.set(2.4, len, 1);
+    this.lineMesh.material.opacity = 0.16;
+    this.lineMesh.visible = true;
+    this.cur = 'line';
+  },
+  ring(x, z, r) {
+    if (!this.ringMesh) {
+      this.ringMesh = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.0, 40),
+        new THREE.MeshBasicMaterial({ color: 0xff3a1a, transparent: true, opacity: 0.4, side: THREE.DoubleSide, depthWrite: false, blending: THREE.AdditiveBlending }));
+      this.ringMesh.rotation.x = -Math.PI / 2;
+      scene.add(this.ringMesh);
+    }
+    this.ringMesh.position.set(x, 0.12, z);
+    this.ringMesh.scale.setScalar(r);
+    this.ringMesh.material.opacity = 0.2;
+    this.ringMesh.visible = true;
+    this.cur = 'ring';
+  },
+  progress(u) {                 // 蓄力进度：越来越亮 + 脉冲
+    const m = this.cur === 'line' ? this.lineMesh : this.ringMesh;
+    if (m) m.material.opacity = 0.16 + u * 0.5 + Math.sin(u * 40) * 0.08;
+  },
+  hide() {
+    if (this.lineMesh) this.lineMesh.visible = false;
+    if (this.ringMesh) this.ringMesh.visible = false;
+    this.cur = null;
+  },
+};
+
+// ================================================================ 一帧模拟
+function simStep() {
+  if (S.paused) return;
+  S.t += STEP; S.frame++; game.frame++;
+  if (BOT) faceNearest();                 // ?bot=1：替玩家转向（快进测试用）
+  if (S.cdSpin > 0) S.cdSpin--;
+  if (S.cdDash > 0) S.cdDash--;
+  if (S.invuln > 0) S.invuln--;
+
+  const dir = dashDir();
+  let mx = dir[0], mz = dir[1];
+  const moving = keys.has('KeyW') || keys.has('ArrowUp') || keys.has('KeyS') || keys.has('ArrowDown')
+    || keys.has('KeyA') || keys.has('ArrowLeft') || keys.has('KeyD') || keys.has('ArrowRight');
+  if (moving) {
+    hero.x += mx * moveSpeed() * STEP;
+    hero.z += mz * moveSpeed() * STEP;
+    hero.yaw = Math.atan2(mx, mz);
+    const r = Math.hypot(hero.x, hero.z), lim = 46;
+    if (r > lim) { hero.x *= lim / r; hero.z *= lim / r; }
+  }
+  hero.hp = Math.min(hero.hpMax, hero.hp + (S.up.regen * 0.7) * STEP);   // 基础回血已删（站着不再能回血）
+
+  if (SPAM && S.frame % 70 === 0) doSpin();          // ?spam=1：每 1.2s 一次旋风斩
+  if (SPAM && S.frame % 200 === 120) doDash();
+  if (SPAM && S.frame % 600 === 300) doNova();          // spam 时也放新星（未解锁会自动忽略）
+  if (--S.atkCd <= 0) { S.atkCd = interval(); hero.state = 'attack'; sweep(); }
+  else if (S.atkCd < interval() - 8) hero.state = 'idle';
+  if (S.atkFlash > 0) S.atkFlash--;
+
+  const w = Math.floor(S.t * 60 / CFG.waveLen) + 1;
+  if (w !== S.wave) {
+    S.wave = w;
+    S.bestWave = Math.max(S.bestWave, w);
+    applyWave();
+  }
+  game.crowd.step();
+  // 野怪：击杀第一个 Boss 后开始出现
+  if (S.firstBossDown) {
+    if (!lairs.length) { initLairs(); for (const L of lairs) for (let k = 0; k < 3; k++) spawnInLair(L); }
+    S.monsterT += STEP;
+    if (S.monsterT > 1) {
+      S.monsterT = 0;
+      for (const L of lairs) {
+        if (L.cd > 0) { L.cd -= 60; if (L.cd <= 0) for (let k = 0; k < 3; k++) spawnInLair(L); }
+        else if (L.alive.size < 3) spawnInLair(L);
+      }
+    }
+  }
+  if (S.bossIn > 0 && --S.bossIn === 0) spawnBoss();   // Boss 按 sim 帧降临
+  if (S.boss) {
+    const c2 = game.crowd, bi = S.boss.idx;
+    // ⚠️ Boss 必须贴身：crowd 的环位逻辑会把它当普通军官安排在外层环（实测停在 6.6），
+    // 而玩家攻击半径只有 2.5 → 永远打不到。这里每帧把它压回内层 + 贴身偏好。
+    c2.band[bi] = 0;
+    c2.pref[bi] = 1.3;
+    S.boss.hp = Math.max(0, c2.hp[bi]);
+    if (c2.st[bi] === ST.OFF && S.boss.hp > 0) S.boss = null;   // 被系统回收 → 清掉血条
+    else bossAI.run(c2, bi);                                    // v2.8：Boss 技能调度
+  }
+  if (S.shake > 0) S.shake = Math.max(0, S.shake - STEP * 2.2);
+}
+
+// ================================================================ 启动
+game.crowd.spawnArmy();
+updateStats();
+for (let i = 0; i < FF * 60; i++) {
+  if (S.paused && offer.length) pickUpgrade(0);
+  simStep();
+}
+
+// ================================================================ 主循环
+let acc = 0, last = performance.now(), time = 0;
+const focus = new THREE.Vector3();
+
+function frame(now) {
+  const dt = Math.min(0.08, (now - last) / 1000);
+  last = now; acc += dt; time += dt;
+  while (acc >= STEP) { acc -= STEP; simStep(); }
+  crowdView.update(S.paused ? 0 : dt);
+
+  // 表现
+  heroMesh.position.set(hero.x, 0, hero.z);
+  heroMesh.rotation.y = hero.yaw;
+  heroMesh.visible = !(S.invuln > 0 && (game.frame & 4));      // 无敌帧闪烁
+  heroRing.position.set(hero.x, 0.05, hero.z);
+  slashGroup.position.set(hero.x, 0.06, hero.z);
+  slashGroup.rotation.y = hero.yaw;
+  slash.material.opacity = (S.atkFlash / 9) * 0.3;
+  // 旋风冲击环（3 道错开）
+  for (const w of spinWaves) {
+    if (w.t >= 1) { w.m.material.opacity = 0; continue; }
+    w.t += dt;
+    if (w.t < 0) { w.m.material.opacity = 0; continue; }
+    w.m.position.set(hero.x, 0.08, hero.z);
+    w.m.scale.setScalar(w.scale0 * (0.35 + w.t * 1.25));
+    w.m.material.opacity = Math.max(0, 0.5 * (1 - w.t));
+  }
+  // 火盘淡出 + 微微扩散
+  if (fireDisc.material.opacity > 0) {
+    fireDisc.material.opacity = Math.max(0, fireDisc.material.opacity - dt * 2.6);
+    fireDisc.scale.multiplyScalar(1 + dt * 0.5);
+  }
+  // 冲刺残影
+  for (const g of ghosts) {
+    if (g.life <= 0) { if (g.m.visible) g.m.visible = false; continue; }
+    g.life -= dt;
+    g.m.material.opacity = Math.max(0, g.life * 1.6);
+  }
+  // 英雄旋转（旋风斩看得到的本体动作）
+  if (S.heroSpin > 0) {
+    S.heroSpin -= dt;
+    heroMesh.rotation.y = hero.yaw + (1 - Math.max(0, S.heroSpin) / 0.42) * Math.PI * 2;
+  }
+  if (S.flash > 0) S.flash = Math.max(0, S.flash - dt * 3.6);
+  updateMonsters(S.paused ? 0 : dt);
+  updateProjs(S.paused ? 0 : dt);
+  updateHealRings(S.paused ? 0 : dt);
+  updateDrops(S.paused ? 0 : dt);
+  updateBurn(S.paused ? 0 : dt);
+  updateBeams(S.paused ? 0 : dt);
+  updateParts(dt);
+
+  // 相机固定朝向（v2.1 修 bug）：原来按 hero 相对原点的角度摆放相机，
+  // 玩家走到 +Z 侧时相机会绕到对面 → 屏幕方向整体翻转（按上变下）。
+  // 幸存者类必须用「固定朝向 + 跟随位置」，这样 WASD 永远对应屏幕方向。
+  const sh = S.shake * (0.6 + Math.random() * 0.8);
+  camera.position.set(hero.x + (Math.random() - 0.5) * sh,
+    12.5 + (Math.random() - 0.5) * sh, hero.z + 15 + (Math.random() - 0.5) * sh);
+  camera.lookAt(hero.x, 1.5, hero.z);
+  // 出生波次从镜头背后（+Z）来，所以 cam.yaw 固定 0
+  game.cam.yaw = 0;
+  focus.set(hero.x, 1.3, hero.z);
+
+  const low = hero.hp / hero.hpMax;
+  post.render(scene, camera, time, focus, Math.max(S.flash * 0.45, low < 0.3 ? 0.05 + Math.sin(time * 10) * 0.045 : 0));
+  renderNumbers(dt);
+
+  // HUD
+  document.getElementById('t-time').textContent = fmt(S.t);
+  document.getElementById('t-kills').textContent = S.kills;
+  document.getElementById('t-lv').textContent = S.lv;
+  document.getElementById('t-wave').textContent = S.bestWave;
+  document.getElementById('t-boss').textContent = String(S.bossKilled || 0);
+  document.getElementById('t-next').textContent = String((Math.floor((S.bestWave - 1) / CFG.bossEvery) + 1) * CFG.bossEvery);
+  document.getElementById('hpF').style.width = `${Math.max(0, low * 100)}%`;
+  document.getElementById('xpF').style.width = `${Math.min(100, (S.xp / CFG.xpPerLevel(S.lv)) * 100)}%`;
+  document.getElementById('danger').style.opacity = low < 0.3 ? '0.5' : '0';
+  if ((S.frame & 15) === 0) updateStats();
+  for (const [id, cd, max] of [['sk-spin', S.cdSpin, SKILL.spin.cd], ['sk-dash', S.cdDash, SKILL.dash.cd], ['sk-nova', S.cdNova, SKILL.nova.cd]]) {
+    const el = document.getElementById(id);
+    el.classList.toggle('ready', cd <= 0);
+    el.querySelector('.fill').style.transform = `scaleX(${Math.max(0, cd / max)})`;
+  }
+  const bossEl = document.getElementById('boss');
+  if (S.boss) {
+    bossEl.classList.add('on');
+    document.getElementById('bossF').style.width = `${(S.boss.hp / S.boss.hpMax) * 100}%`;
+  } else bossEl.classList.remove('on');
+
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  post.setSize(innerWidth, innerHeight);
+});
+
+// headless 验证 / 测试钩子
+window.__ready = true;
+window.__stats = () => {
+  const c = game.crowd;
+  let alive = 0, dead = 0, atk = 0;
+  for (let i = 0; i < c.N; i++) {
+    if (c.st[i] === ST.DEAD) dead++;
+    else if (c.st[i] !== ST.OFF) { alive++; if (c.st[i] === ST.ATTACK) atk++; }
+  }
+  return { alive, dead, attacking: atk, kills: S.kills, lv: S.lv, hp: +hero.hp.toFixed(1), t: +S.t.toFixed(1),
+    dmg: +dmg().toFixed(1), rad: +radius().toFixed(2), edmg: +CFG.enemyDmg(S.wave, S.lv).toFixed(2),
+    wave: S.bestWave, boss: S.boss ? { hp: Math.round(S.boss.hp), max: S.boss.hpMax } : null,
+    cdSpin: S.cdSpin, cdDash: S.cdDash, cdNova: S.cdNova, monsters: monsters.length, drops: drops.length,
+    gear: S.gear, novaUnlocked: S.novaUnlocked, firstBossDown: S.firstBossDown, paused: S.paused, dead: S.dead };
+};
+// 诊断：站桩验证 / 查找"为什么敌人不攻击"
+window.__diag = () => {
+  const c = game.crowd, names = ['OFF','IDLE','ADVANCE','GUARD','ATTACK','HURT','KNOCK','AIR','DOWN','GETUP','DEAD'];
+  const hist = {}; let inForm = 0, cdPos = 0, near = 0, tokens = 0, minD = 999;
+  for (let i = 0; i < c.N; i++) {
+    const st = c.st[i];
+    if (st === 0) continue;
+    hist[names[st]] = (hist[names[st]] || 0) + 1;
+    if (c.form[i]) inForm++;
+    if (c.cd[i] > 0) cdPos++;
+    if (c.token[i]) tokens++;
+    const d = Math.hypot(c.x[i] - hero.x, c.z[i] - hero.z);
+    if (d < 4.5) near++;
+    if (d < minD) minD = d;
+  }
+  return { hist, inForm, cdPos, near45: near, tokens, tokensUsed: c.tokensUsed, minD: +minD.toFixed(2),
+    heroHp: +hero.hp.toFixed(1), heroYaw: +hero.yaw.toFixed(2), standing: keys.size === 0 };
+};
+window.__test = {
+  spin: doSpin, dash: doDash, nova: doNova, spawnMonster, spawnDrop, monsters, drops, bossAI, telegraph, hurt,
+  get lairs() { return lairs; },
+  killFirstBoss: () => { S.firstBossDown = true; S.novaUnlocked = true; document.getElementById('sk-nova').classList.remove('locked'); }, tick: simStep, levelUp, damageHero, spawnBoss,
+  stand: () => { keys.clear(); },          // 清空输入 → 静立不动（用于验证"站桩是否会死"）
+  // 测试机器人：面向最近的敌人（模拟"真人原地转身打"的最优打法，用来校准升级节奏）
+  faceNearest,
+  press: (code) => keys.add(code),
+  get S() { return S; }, get hero() { return hero; }, get game() { return game; },
+};
+</script>
+</body>
+</html>

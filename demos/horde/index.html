@@ -1,0 +1,200 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>组合 demo — voxel 环境 + crowd 敌潮 + post 电影感</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0b0f14; overflow: hidden; }
+  canvas { display: block; }
+  #hud {
+    position: fixed; left: 16px; bottom: 14px; color: #cfe3ea;
+    font: 12px/1.7 ui-monospace, Menlo, monospace; text-shadow: 0 1px 2px #000a; pointer-events: none;
+  }
+  #hud b { color: #7fd1c8; }
+  #hud .dim { color: #6b818c; }
+  #stats {
+    position: fixed; right: 16px; top: 14px; color: #cfe3ea; text-align: right;
+    font: 12px/1.6 ui-monospace, Menlo, monospace; text-shadow: 0 1px 2px #000a; pointer-events: none;
+  }
+  #stats em { color: #ffb454; font-style: normal; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "../../vendor/three/three.module.js", "three/addons/": "../../vendor/three/addons/" } }
+</script>
+</head>
+<body>
+<div id="hud">
+  <b>组合 demo</b> — 4 个子系统拼出一个可跑的「割草切片」<br>
+  <code>voxel.js</code> 环境与美术 · <code>crowd.js</code> 304 兵行为 · <code>view.js</code> instanced 渲染 + 姿态混合 · <code>post.js</code> 大气/景深/Bloom/调色<br>
+  <span class="dim">全部程序化：零外部模型、零贴图、零音频文件 · 合计 1,972 行</span>
+</div>
+<div id="stats">
+  <div>单位 <em id="s-units">0</em> · 交战 <em id="s-engaged">0</em></div>
+  <div>英雄 HP <em id="s-hp">100</em></div>
+  <div>帧 <em id="s-frame">0</em></div>
+</div>
+<script type="module">
+import * as THREE from 'three';
+import { createCrowd, ST } from '../../lib/crowd.js';
+import { createCrowdView } from '../../lib/view.js';
+import { sculpt, boxesGeometry } from '../../lib/voxel.js';
+import { createPost } from '../../lib/post.js';
+
+// ?n=<数量> 可覆盖（机器吃力时减到 120-200）
+const GRUNTS = Math.max(40, Math.min(600, Number(new URLSearchParams(location.search).get('n') || 300)));
+
+// ---------------------------------------------------------------- 最小 game 存根（crowd 只读这 6 个字段）
+const game = {
+  frame: 0, freeze: 0,
+  hero: { x: 0, y: 0, z: 0, hp: 100, hpMax: 100, yaw: 0 },
+  cam: { yaw: 0 },
+  combat: { enemyStrike(i) { game.hero.hp = Math.max(0, game.hero.hp - 1.2); } },
+  crowd: null,
+};
+
+// ---------------------------------------------------------------- post.js 自己建 renderer
+// 它内部 new WebGLRenderer({ canvas })，所以把 canvas 建好传进去、再挂到 DOM 即可。
+// （renderer 的 shadows 由 post.js 打开；需要额外配置时自己 new 一个再传 canvas 也行）
+const canvas = document.createElement('canvas');
+canvas.style.display = 'block';
+document.body.appendChild(canvas);
+const post = createPost({ canvas, width: innerWidth, height: innerHeight });
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x2a2f3a);
+scene.fog = new THREE.Fog(0x2a2f3a, 34, 92);
+
+const camera = new THREE.PerspectiveCamera(42, innerWidth / innerHeight, 0.1, 300);
+camera.position.set(0, 9, 18);
+
+// 金色时刻布光（post.js 的默认调色就是照这个基准调的）
+scene.add(new THREE.HemisphereLight(0xbcd4ff, 0x3a2c1e, 0.6));
+const sun = new THREE.DirectionalLight(0xffd9a0, 2.6);
+sun.position.set(9, 11, 7);
+sun.castShadow = true;
+sun.shadow.mapSize.set(2048, 2048);
+Object.assign(sun.shadow.camera, { left: -26, right: 26, top: 26, bottom: -26, near: 1, far: 70 });
+scene.add(sun);
+
+// ---------------------------------------------------------------- voxel.js：环境（全程序化）
+const vmat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.82, metalness: 0.05, flatShading: true });
+const ground = new THREE.Mesh(boxesGeometry([{ s: [110, 0.6, 110], p: [0, -0.3, 0], c: 0x4a4034 }]), vmat);
+ground.receiveShadow = true;
+scene.add(ground);
+
+// 战场周围一圈体素树/岩（用确定性随机撒点，scene 每次都长得一样）
+let seed = 1337;
+const rand = () => (seed = (seed * 1103515245 + 12345) & 0x7fffffff) / 0x7fffffff;
+function prop(kind, x, z, s) {
+  const boxes = kind === 'tree' ? [
+    { a: [-0.9, 0, -0.9], b: [0.9, 3.2, 0.9], c: 0x6b4a2f },
+    { a: [-2.6, 3.2, -2.6], b: [2.6, 4.9, 2.6], c: 0x2f7d4f },
+    { a: [-1.9, 4.9, -1.9], b: [1.9, 6.2, 1.9], c: 0x37935c },
+    { a: [-1.1, 6.2, -1.1], b: [1.1, 7.2, 1.1], c: 0x41a868 },
+  ] : [
+    { a: [-1.3, 0, -1.3], b: [1.3, 1.5, 1.3], c: 0x5c5b55 },
+    { a: [-0.9, 1.5, -0.9], b: [0.9, 2.1, 0.9], c: 0x6d6c64 },
+  ];
+  const m = new THREE.Mesh(sculpt(boxes, 0.12, 0.2), vmat);
+  m.castShadow = m.receiveShadow = true;
+  m.position.set(x, 0, z);
+  m.scale.setScalar(s);
+  scene.add(m);
+}
+for (let i = 0; i < 34; i++) {
+  const a = rand() * Math.PI * 2, r = 19 + rand() * 26;
+  prop(rand() > 0.35 ? 'tree' : 'rock', Math.sin(a) * r, Math.cos(a) * r, 0.8 + rand() * 0.7);
+}
+// 火把：给画面几个暖光源（post 的 bloom 阈值会挑中它们）
+for (const p of [[7, 7], [-7, 7], [7, -7], [-7, -7]]) {
+  const pole = new THREE.Mesh(sculpt([{ a: [-0.12, 0, -0.12], b: [0.12, 2.4, 0.12], c: 0x4a3524 }], 0.08), vmat);
+  pole.position.set(p[0], 0, p[1]);
+  pole.castShadow = true;
+  scene.add(pole);
+  const flame = new THREE.Mesh(new THREE.IcosahedronGeometry(0.26, 1), new THREE.MeshBasicMaterial({ color: 0xffb454 }));
+  flame.position.set(p[0], 2.55, p[1]);
+  scene.add(flame);
+  const l = new THREE.PointLight(0xff8c3c, 5, 14, 2);
+  l.position.copy(flame.position);
+  scene.add(l);
+}
+
+// 英雄替身（真项目里换成 rig.js 驱动的角色）
+const heroMesh = new THREE.Mesh(sculpt([
+  { a: [-0.5, 0, -0.35], b: [0.5, 0.35, 0.35], c: 0x2b3a55 },
+  { a: [-0.55, 0.35, -0.35], b: [0.55, 1.35, 0.35], c: 0x9a3b3b },
+  { a: [-0.85, 1.05, -0.3], b: [-0.55, 1.9, 0.3], c: 0x9a3b3b },
+  { a: [0.55, 1.05, -0.3], b: [0.85, 1.9, 0.3], c: 0x9a3b3b },
+  { a: [-0.42, 1.35, -0.42], b: [0.42, 2.05, 0.42], c: 0xe8c9a6 },
+  { a: [-0.5, 2.05, -0.5], b: [0.5, 2.35, 0.5], c: 0x3a2b22 },
+  { a: [-0.18, 0.55, 0.34], b: [0.18, 0.75, 0.38], c: 0xd4a84c },
+], 0.075, 0.12), vmat);
+heroMesh.castShadow = true;
+scene.add(heroMesh);
+
+// ---------------------------------------------------------------- crowd.js + view.js
+game.crowd = createCrowd(game, GRUNTS);
+const crowdView = createCrowdView(scene, game);
+game.crowd.spawnArmy();
+// 启动快进（sim 与渲染解耦，快进不影响状态）：直接进交战
+for (let k = 0; k < 480; k++) { game.frame++; game.crowd.step(); }
+
+// ---------------------------------------------------------------- 循环（固定 60Hz sim + post 渲染）
+const STEP = 1 / 60;
+let acc = 0, last = performance.now(), time = 0;
+const focus = new THREE.Vector3(0, 1.3, 0);
+
+function frame(now) {
+  const dt = Math.min(0.1, (now - last) / 1000);
+  last = now; acc += dt; time += dt;
+  while (acc >= STEP) {
+    acc -= STEP;
+    game.frame++;
+    game.hero.yaw += 0.004;
+    game.cam.yaw = game.hero.yaw;
+    if (game.frame % 900 === 0) game.hero.hp = Math.min(100, game.hero.hp + 25);
+    if (game.hero.hp <= 0) { game.hero.hp = 100; game.crowd.reset(); game.crowd.spawnArmy(); }
+    game.crowd.step();
+  }
+  crowdView.update(dt);
+
+  heroMesh.rotation.y = game.hero.yaw;
+  const r = 18, a = game.hero.yaw * 0.5 + 0.6;
+  camera.position.set(Math.sin(a) * r, 9.5, Math.cos(a) * r);
+  camera.lookAt(0, 1.5, 0);
+
+  post.render(scene, camera, time, focus, 0);
+
+  if ((game.frame & 15) === 0) {
+    let alive = 0, engaged = 0;
+    for (let i = 0; i < game.crowd.N; i++) {
+      const s = game.crowd.st[i];
+      if (s !== ST.OFF && s !== ST.DEAD) alive++;
+      if (s === ST.ADVANCE || s === ST.ATTACK) engaged++;
+    }
+    document.getElementById('s-units').textContent = alive;
+    document.getElementById('s-engaged').textContent = engaged;
+    document.getElementById('s-hp').textContent = game.hero.hp.toFixed(0);
+    document.getElementById('s-frame').textContent = game.frame;
+  }
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+
+addEventListener('resize', () => {
+  camera.aspect = innerWidth / innerHeight;
+  camera.updateProjectionMatrix();
+  post.setSize(innerWidth, innerHeight);
+});
+
+window.__ready = true;
+window.__stats = () => {
+  const c = game.crowd;
+  let alive = 0, dead = 0;
+  for (let i = 0; i < c.N; i++) { if (c.st[i] === ST.DEAD) dead++; else if (c.st[i] !== ST.OFF) alive++; }
+  return { N: c.N, alive, dead, frame: game.frame, heroHp: +game.hero.hp.toFixed(1) };
+};
+</script>
+</body>
+</html>
