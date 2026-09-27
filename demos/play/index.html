@@ -164,6 +164,14 @@ const SKILL = {
   // v2.7：烈焰冲击 —— 朝向前方的直线（长 20、半宽 1.9），线内全部吃伤害，并留下灼烧带
   nova: { cd: 720, len: 20, half: 1.9, dmg: 4.5, burn: 4.5, burnTick: 30, shake: 0.8 },
 };
+// ── v2.11：同批伤害递减
+// 问题：tokens=6 / maxStrikers=5 → 一轮最多 5 个兵同时打你，5 级后一口 43 点（43% 血）。
+//   直接砍 maxStrikers 会丢掉"被一群兵围住"的压迫感（这是这类游戏的核心体验），
+//   所以改成"总伤害打折"：0.5 秒窗口内的第 2/3/4/5 次伤害依次 ×0.75/0.6/0.45/0.35。
+//   5 次全中的总伤害 = 5.0 → 3.15（−37%），但画面上永远是"5 个兵一起砍你"。
+//   ⚠️ 只对普通兵生效（heavy=false）；Boss 的重击是有预警、可躲的，不该被递减。
+const COMBO = { window: 30, mul: [1, 0.75, 0.6, 0.45, 0.35] };
+
 const BASE = { hp: CROWD.hp, captain: CROWD.captainHp, officer: CROWD.officerHp, engaged: CROWD.engaged, waveEvery: [...CROWD.waveEvery] };
 
 // ---- 压力调优：直接改 crowd 配置（原作默认是"围而不杀"，站桩几乎不掉血）
@@ -217,6 +225,7 @@ const S = {
   paused: false, dead: false, atkCd: 0, atkFlash: 0, shake: 0, cdSpin: 0, cdDash: 0, invuln: 0,
   boss: null, flash: 0, heroSpin: 0, cdNova: 0, novaUnlocked: false,
   firstBossDown: false, monsterT: 0, killsMonster: 0, gear: 0, bossIn: 0,
+  comboT: 9999, comboN: 0,
   up: { dmg: 0, spd: 0, rad: 0, move: 0, hp: 0, regen: 0, crit: 0, fire: 0, lifesteal: 0 },
 };
 const hero = { x: 0, y: 0, z: 0, hp: CFG.heroHpMax, hpMax: CFG.heroHpMax, yaw: 0, state: 'idle' };
@@ -423,7 +432,15 @@ addEventListener('keyup', (e) => keys.delete(e.code));
 // ================================================================ 伤害 / 技能
 function damageHero(mult = 1, heavy = false) {
   if (S.dead || S.invuln > 0 || GOD) return;
-  hero.hp -= CFG.enemyDmg(S.wave, S.lv) * mult;
+  let batch = 1;
+  if (!heavy) {                                    // 同批递减（v2.11，仅普通兵）
+    S.comboN = S.comboT <= COMBO.window ? Math.min(S.comboN + 1, COMBO.mul.length - 1) : 0;
+    S.comboT = 0;
+    batch = COMBO.mul[S.comboN];
+  }
+  const dv = CFG.enemyDmg(S.wave, S.lv) * mult * batch;
+  if (window.__dmgLog) window.__dmgLog.push(+dv.toFixed(2));     // 调参用：记录每次真实伤害
+  hero.hp -= dv;
   S.shake = Math.max(S.shake, heavy ? 0.6 : 0.22);
   SFX.hurt();
   if (hero.hp <= 0) gameOver();
@@ -709,6 +726,7 @@ function restart() {
   document.getElementById('sk-nova').classList.add('locked');
   bossAI.reset();
   S.bossKilled = 0;
+  S.comboT = 9999; S.comboN = 0;
   game.crowd.scale.fill(0);
   game.crowd.reset();
   game.crowd.spawnArmy();
@@ -1411,6 +1429,7 @@ function simStep() {
   if (BOT) faceNearest();                 // ?bot=1：替玩家转向（快进测试用）
   if (S.cdSpin > 0) S.cdSpin--;
   if (S.cdDash > 0) S.cdDash--;
+  if (S.comboT < 9999) S.comboT++;              // 同批递减窗口
   if (S.invuln > 0) S.invuln--;
 
   const dir = dashDir();
@@ -1607,7 +1626,7 @@ window.__diag = () => {
     heroHp: +hero.hp.toFixed(1), heroYaw: +hero.yaw.toFixed(2), standing: keys.size === 0 };
 };
 window.__test = {
-  spin: doSpin, dash: doDash, nova: doNova, spawnMonster, spawnDrop, monsters, drops, bossAI, telegraph, hurt,
+  damageHero, spin: doSpin, dash: doDash, nova: doNova, spawnMonster, spawnDrop, monsters, drops, bossAI, telegraph, hurt, COMBO,
   get lairs() { return lairs; },
   killFirstBoss: () => { S.firstBossDown = true; S.novaUnlocked = true; document.getElementById('sk-nova').classList.remove('locked'); }, tick: simStep, levelUp, damageHero, spawnBoss,
   stand: () => { keys.clear(); },          // 清空输入 → 静立不动（用于验证"站桩是否会死"）
