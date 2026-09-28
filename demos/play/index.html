@@ -127,6 +127,10 @@
   .card { flex: 1 1 200px; max-width: 236px; background: #131c24e6; border: 1px solid #2c3f4d; border-radius: 12px;
           padding: 16px; cursor: pointer; text-align: left; transition: .12s; }
   .card:hover { border-color: #7fd1c8; transform: translateY(-3px); }
+  .card.sel { border-color: #9ff5e6; border-width: 2px; background: #1b2a36f0; transform: translateY(-6px);
+              box-shadow: 0 0 0 3px #7fd1c833, 0 10px 26px -8px #7fd1c866; }
+  .card.sel .k { color: #9ff5e6; }
+  .card.sel .k::after { content: ' ◀ ▶'; opacity: .55; font-size: 10px; }
   .card .k { font-size: 11px; color: #7fd1c8; }
   .card .n { font-size: 16px; margin: 6px 0; color: #fff; }
   .card .d { font-size: 12px; color: #9fb3c2; line-height: 1.6; }
@@ -233,7 +237,7 @@
 <div id="toast"></div>
 
 <div class="ui" id="levelup"><div class="box">
-  <h2>Level up</h2><p class="sub">Pick one</p><div id="cards"></div>
+  <h2>Level up</h2><p class="sub">Pick one — <b>←</b> <b>→</b> to choose, <b>Enter</b> to take</p><div id="cards"></div>
 </div></div>
 
 <div class="ui" id="over"><div class="box">
@@ -437,7 +441,7 @@ const S = {
   paused: false, dead: false, atkCd: 0, atkFlash: 0, shake: 0, cdSpin: 0, cdDash: 0, invuln: 0,
   boss: null, flash: 0, heroSpin: 0, cdNova: 0,
   firstBossDown: false, monsterT: 0, killsMonster: 0, gear: 0, bossIn: 0,
-  comboT: 9999, comboN: 0, weaponType: -1, buff: { speed: 0, power: 0 }, obstBroken: 0,
+  comboT: 9999, comboN: 0, weaponType: -1, sel: 0, selN: 0, buff: { speed: 0, power: 0 }, obstBroken: 0,
   up: { dmg: 0, spd: 0, rad: 0, move: 0, hp: 0, regen: 0, crit: 0, fire: 0, lifesteal: 0 },
 };
 const hero = { x: 0, y: 0, z: 0, hp: CFG.heroHpMax, hpMax: CFG.heroHpMax, yaw: 0, state: 'idle' };
@@ -815,7 +819,19 @@ const keys = new Set();
 addEventListener('keydown', (e) => {
   audioReady();                       // 首次按键解锁音频
   keys.add(e.code);
-  if (S.paused) { const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code); if (i >= 0) pickUpgrade(i); return; }
+  if (S.paused) {
+    const i = ['Digit1', 'Digit2', 'Digit3'].indexOf(e.code);      // 数字键直选
+    if (i >= 0 && i < offer.length) { pickUpgrade(i); return; }
+    if (e.code === 'ArrowLeft' || e.code === 'KeyA') { e.preventDefault(); moveSel(-1); return; }
+    if (e.code === 'ArrowRight' || e.code === 'KeyD') { e.preventDefault(); moveSel(1); return; }
+    if (e.code === 'Enter' || e.code === 'NumpadEnter' || e.code === 'Space') {
+      e.preventDefault();
+      if (offer.length) pickUpgrade(S.sel);
+      else document.getElementById('again').click();               // 结算界面回车 = 重来
+      return;
+    }
+    return;
+  }
   // v2.19 键位重排：QWER 那排（W 被移动占用，所以实际是 Q/E/R/F）+ 保留旧键
   //   Q 旋风斩   E 冲刺   R 终极技   F 切换属性
   //   Space 旋风斩（旧）· Shift 冲刺（旧）· 鼠标左右键也给技能
@@ -1194,8 +1210,24 @@ function levelUp(bossFree) {
     el.onclick = () => pickUpgrade(i);
     cards.appendChild(el);
   });
+  S.sel = 0;
+  refreshCards();
   document.getElementById('levelup').classList.add('on');
   SFX.level();
+}
+
+// v2.28：升级界面支持键盘选择（玩家反馈"技能升级也要支持键盘操作，左右控制"）
+//   ← → / A D 移动选中 · Enter / Space 确认 · 1 / 2 / 3 直选（保留）
+function refreshCards() {
+  const cards = document.getElementById('cards').children;
+  S.selN = cards.length;
+  for (let i = 0; i < cards.length; i++) cards[i].classList.toggle('sel', i === S.sel);
+}
+function moveSel(d) {
+  if (!offer.length) return;
+  S.sel = (S.sel + d + offer.length) % offer.length;
+  refreshCards();
+  tone(660 + S.sel * 90, 0.05, 'square', 0.025, 60);
 }
 function pickUpgrade(i) {
   const u = offer[i];
