@@ -444,7 +444,9 @@ const hero = { x: 0, y: 0, z: 0, hp: CFG.heroHpMax, hpMax: CFG.heroHpMax, yaw: 0
 const game = {
   frame: 0, freeze: 0, hero, cam: { yaw: 0 }, crowd: null,
   // crowd 回调：军官/Boss 的重击（3.2 倍伤害 + 更强屏震）
-  combat: { enemyStrike(i) { damageHero(isBoss(i) ? 4.0 : 1, isBoss(i)); } },
+  // v2.25：Boss 的普通攻击不再复用兵潮的出手 —— 改用专属横扫（更远、更痛、有独立视觉）。
+  // 之前它和小兵用同一套动作，玩家根本分不清"这一下是 Boss 打的"。
+  combat: { enemyStrike(i) { isBoss(i) ? bossCleave(i) : damageHero(1, false); } },
 };
 
 // v2.4：升级本身也涨属性（不只是抽卡才涨）—— 范围 +4%/级、伤害 +6%/级
@@ -495,16 +497,39 @@ for (let i = 0; i < 40; i++) {
 }
 
 const heroMesh = new THREE.Mesh(sculpt([
-  { a: [-0.5, 0, -0.35], b: [0.5, 0.35, 0.35], c: 0x2b3a55 },
-  { a: [-0.55, 0.35, -0.35], b: [0.55, 1.35, 0.35], c: 0x2f6c8a },
-  { a: [-0.85, 1.05, -0.3], b: [-0.55, 1.9, 0.3], c: 0x2f6c8a },
-  { a: [0.55, 1.05, -0.3], b: [0.85, 1.9, 0.3], c: 0x2f6c8a },
-  { a: [-0.42, 1.35, -0.42], b: [0.42, 2.05, 0.42], c: 0xe8c9a6 },
-  { a: [-0.5, 2.05, -0.5], b: [0.5, 2.35, 0.5], c: 0x2a3a2a },
-  { a: [-0.18, 0.55, 0.34], b: [0.18, 0.75, 0.38], c: 0xd4a84c },
-  { a: [-0.62, 0.5, -0.5], b: [-0.5, 1.9, 0.5], c: 0x7fe3d0 },
-  { a: [0.5, 0.5, -0.5], b: [0.62, 1.9, 0.5], c: 0x7fe3d0 },
-], 0.075, 0.12), vmat);
+  // ⚠️ 朝向约定：+Z 是正面（hero.yaw = 0 时朝 +Z），普攻只打正面 ±70° 扇形。
+  // v2.27：玩家反馈「看不清正面背面」—— 原来的模型正反面几乎一样（只有一块小金牌）。
+  //       现在按"我的世界"式做五官和背面特征，俯视也能一眼分出朝向。
+  // ── 腿（分成两条，中间留缝 —— 一眼看出是"人"）
+  { a: [-0.44, 0, -0.32], b: [-0.06, 0.6, 0.32], c: 0x2b3a55 },
+  { a: [0.06, 0, -0.32], b: [0.44, 0.6, 0.32], c: 0x2b3a55 },
+  { a: [-0.46, -0.02, -0.36], b: [-0.04, 0.14, 0.36], c: 0x1e2836 },   // 靴
+  { a: [0.04, -0.02, -0.36], b: [0.46, 0.14, 0.36], c: 0x1e2836 },
+  // ── 躯干
+  { a: [-0.5, 0.6, -0.34], b: [0.5, 1.42, 0.34], c: 0x2f6c8a },
+  { a: [-0.52, 0.6, -0.36], b: [0.52, 0.76, 0.22], c: 0x6a4a2a },      // 腰带（背面短一截）
+  { a: [-0.3, 0.9, 0.3], b: [0.3, 1.22, 0.4], c: 0xd4a84c },           // 胸前护心镜（只有正面有）
+  { a: [-0.09, 0.94, 0.4], b: [0.09, 1.18, 0.44], c: 0x7fe3d0 },       // 护心镜中央的青玉
+  { a: [-0.46, 0.64, -0.5], b: [0.46, 1.5, -0.4], c: 0x22596b },       // ⭐ 披风（只有背面有）
+  { a: [-0.42, 0.2, -0.48], b: [0.42, 0.66, -0.42], c: 0x1b4655 },     // 披风下摆
+  // ── 手臂 + 手套
+  { a: [-0.86, 0.84, -0.3], b: [-0.52, 1.8, 0.3], c: 0x2f6c8a },
+  { a: [0.52, 0.84, -0.3], b: [0.86, 1.8, 0.3], c: 0x2f6c8a },
+  { a: [-0.88, 0.72, -0.32], b: [-0.5, 0.86, 0.32], c: 0x3a2c22 },     // 手套
+  { a: [0.5, 0.72, -0.32], b: [0.88, 0.86, 0.32], c: 0x3a2c22 },
+  { a: [-0.9, 1.66, -0.34], b: [-0.48, 1.84, 0.34], c: 0xb8c2cc },     // 护肩
+  { a: [0.48, 1.66, -0.34], b: [0.9, 1.84, 0.34], c: 0xb8c2cc },
+  // ── 头（大一点，我的世界式）
+  { a: [-0.44, 1.42, -0.42], b: [0.44, 2.14, 0.42], c: 0xe8c9a6 },
+  { a: [-0.46, 2.12, -0.44], b: [0.46, 2.34, 0.44], c: 0x23324a },     // 头发
+  { a: [-0.46, 1.96, -0.44], b: [0.46, 2.08, -0.4], c: 0x23324a },     // 后脑（背面还多一截）
+  { a: [-0.46, 1.94, 0.4], b: [0.46, 2.06, 0.47], c: 0xd4a84c },       // ⭐ 额头金带（只有正面有）
+  // ⭐ 眼睛（只有正面有 —— 这是"正反面"最主要的判据）
+  { a: [-0.3, 1.62, 0.4], b: [-0.1, 1.78, 0.47], c: 0xf6f8fa },
+  { a: [0.1, 1.62, 0.4], b: [0.3, 1.78, 0.47], c: 0xf6f8fa },
+  { a: [-0.22, 1.64, 0.45], b: [-0.12, 1.74, 0.5], c: 0x1a2230 },
+  { a: [0.12, 1.64, 0.45], b: [0.22, 1.74, 0.5], c: 0x1a2230 },
+], 0.06, 0.09), vmat);
 heroMesh.castShadow = true;
 scene.add(heroMesh);
 
@@ -652,7 +677,7 @@ const _v3 = new THREE.Vector3(), _m4 = new THREE.Matrix4(), _q0 = new THREE.Quat
 
 // 体素碎块粒子池（InstancedMesh）：击杀火花 / 旋风爆发 / 冲刺扬尘 / Boss 死亡
 const PARTS = 420;
-const partMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.15, 0.15, 0.15), new THREE.MeshBasicMaterial(), PARTS);
+const partMesh = new THREE.InstancedMesh(new THREE.BoxGeometry(0.2, 0.2, 0.2), new THREE.MeshBasicMaterial(), PARTS);   // v2.27：0.15→0.2（粒子太小看不出来）
 partMesh.instanceMatrix.setUsage(THREE.DynamicDrawUsage);
 partMesh.frustumCulled = false;
 scene.add(partMesh);
@@ -912,7 +937,7 @@ function hitstop(crit) {
   if (fz > game.freeze) game.freeze = fz;
 }
 function hitSparks(x, z, crit) {
-  burst(x, 1.45, z, crit ? 5 : 2, { speed: crit ? 5.2 : 3.4, life: 0.32, size: crit ? 1.05 : 0.72, up: 2.8,
+  burst(x, 1.45, z, crit ? 6 : 3, { speed: crit ? 5.6 : 3.8, life: 0.36, size: crit ? 1.35 : 1.0, up: 3.1,
     colors: crit ? [0xffffff, 0xffe08a, 0xffb43c] : [0xfff3c4, 0xffd06a] });
 }
 function hitMonster(m, amount, crit) {
@@ -1080,7 +1105,7 @@ function spawnBoss() {
   }
   if (idx < 0 || idx >= c.N) return false;
   // v2.8：上调（v2.5 那版太软，玩家反馈"纯挨打"）
-  const hpMax = Math.round(420 * (1 + 0.5 * (S.wave - 1)) * (1 + 0.08 * (S.bestWave - 1)));
+  const hpMax = Math.round(520 * (1 + 0.55 * (S.wave - 1)) * (1 + 0.08 * (S.bestWave - 1)));   // v2.25：420→520，成长 0.5→0.55
   const a = Math.random() * Math.PI * 2, d = 16;
   const x = hero.x + Math.sin(a) * d, z = hero.z + Math.cos(a) * d;
   // 完整重置（对照 crowd.js 的 place()：漏字段会让渲染读到 undefined/NaN）
@@ -1875,6 +1900,98 @@ function updateBeams(dt) {
   }
 }
 
+// ================================================================ Boss 技能素材（v2.25）
+// ① 横扫弧：Boss 普攻的视觉（红色宽弧，和小兵的普通动作区分开）
+const bossSlashes = [];
+for (let i = 0; i < 3; i++) {
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.58, 1.0, 34, 1, -1.15, 2.3),
+    new THREE.MeshBasicMaterial({ color: 0xff5a3a, transparent: true, opacity: 0, side: THREE.DoubleSide,
+      depthWrite: false, blending: THREE.AdditiveBlending }));
+  m.rotation.x = -Math.PI / 2;
+  scene.add(m);
+  bossSlashes.push({ m, t: 1, x: 0, z: 0, yaw: 0 });
+}
+const BOSS_CLEAVE = { reach: 4.6, cosHalf: Math.cos(1.15), dmg: 4.5 };
+function bossCleave(bi) {
+  const c = game.crowd;
+  const bx = c.x[bi], bz = c.z[bi], yaw = c.yaw[bi];
+  const b = bossSlashes.find((v) => v.t >= 1) || bossSlashes[0];
+  b.t = 0; b.x = bx; b.z = bz; b.yaw = yaw;
+  const dx = hero.x - bx, dz = hero.z - bz, d = Math.hypot(dx, dz) || 1;
+  const inArc = (dx / d) * Math.sin(yaw) + (dz / d) * Math.cos(yaw) >= BOSS_CLEAVE.cosHalf;
+  if (d <= BOSS_CLEAVE.reach && inArc) {                 // 比小兵够得远得多（4.6 vs 1.9）
+    damageHero(BOSS_CLEAVE.dmg, true);
+    hero.x += (dx / d) * 2.6; hero.z += (dz / d) * 2.6;
+    S.shake = 1.0; S.flash = 0.3;
+  } else {
+    S.shake = Math.max(S.shake, 0.22);
+  }
+  burst(bx + Math.sin(yaw) * 2.4, 0.9, bz + Math.cos(yaw) * 2.4, 16,
+    { speed: 5.4, life: 0.42, size: 1.05, up: 3.2, colors: [0xff5a3a, 0xffb43c, 0xffffff] });
+  tone(150, 0.22, 'sawtooth', 0.05, -80);
+  noise(0.06, 0.04, 900);
+}
+function updateBossSlashes(dt) {
+  for (const b of bossSlashes) {
+    if (b.t >= 1) { if (b.m.material.opacity) b.m.material.opacity = 0; continue; }
+    b.t += dt / 0.3;
+    const k = Math.min(1, b.t);
+    b.m.position.set(b.x, 0.14 + k * 0.15, b.z);
+    b.m.rotation.z = b.yaw;
+    b.m.scale.setScalar(BOSS_CLEAVE.reach * (0.65 + k * 0.4));
+    b.m.material.opacity = Math.max(0, Math.pow(1 - k, 1.3)) * 0.8;
+  }
+}
+
+// ② 地刺：地裂技能的一排尖刺（池化 12 根）
+const spikes = [];
+for (let i = 0; i < 12; i++) {
+  const m = new THREE.Mesh(new THREE.ConeGeometry(0.42, 2.4, 4),
+    new THREE.MeshStandardMaterial({ color: 0x8a9098, roughness: 0.8, metalness: 0.2, emissive: 0x3a1a10 }));
+  m.visible = false; m.castShadow = true;
+  scene.add(m);
+  spikes.push({ m, t: 1, delay: 0 });
+}
+function spikeFx(x, z, delay) {
+  const sp = spikes.find((v) => v.t >= 1) || spikes[0];
+  sp.t = -delay * 0.06; sp.x = x; sp.z = z;
+}
+function updateSpikes(dt) {
+  for (const sp of spikes) {
+    if (sp.t >= 1) { if (sp.m.visible) sp.m.visible = false; continue; }
+    sp.t += dt / 0.5;
+    if (sp.t < 0) { sp.m.visible = false; continue; }
+    const k = Math.min(1, sp.t);
+    const rise = k < 0.25 ? k / 0.25 : 1 - Math.max(0, k - 0.55) / 0.45;   // 冒出来再缩回去
+    sp.m.visible = true;
+    sp.m.position.set(sp.x, rise * 1.05 - 0.3, sp.z);
+    sp.m.scale.set(1, Math.max(0.05, rise), 1);
+  }
+}
+
+// ③ 冲击环（回旋斩 / 地震通用）：一圈向外扩的环
+const shockRings = [];
+function shockRing(x, z, r, color, dur = 0.45) {
+  const m = new THREE.Mesh(new THREE.RingGeometry(0.55, 1.0, 40),
+    new THREE.MeshBasicMaterial({ color, transparent: true, opacity: 0.7, side: THREE.DoubleSide,
+      depthWrite: false, blending: THREE.AdditiveBlending }));
+  m.rotation.x = -Math.PI / 2;
+  m.position.set(x, 0.1, z);
+  m.scale.setScalar(r * 0.3);
+  scene.add(m);
+  shockRings.push({ m, t: 0, dur, r });
+}
+function updateShockRings(dt) {
+  for (let i = shockRings.length - 1; i >= 0; i--) {
+    const s = shockRings[i];
+    s.t += dt / s.dur;
+    const k = Math.min(1, s.t);
+    s.m.scale.setScalar(s.r * (0.3 + k * 0.7));
+    s.m.material.opacity = Math.max(0, (1 - k)) * 0.7;
+    if (s.t >= 1) { scene.remove(s.m); s.m.geometry.dispose(); s.m.material.dispose(); shockRings.splice(i, 1); }
+  }
+}
+
 // ── 三种终极技（v2.17）：共用同一个冷却，Q 键 / 点卡片切换属性
 //    火 · Flame Lance —— 直线穿透，留灼烧带
 //    雷 · Thunderfall  —— 全屏落雷，每个目标一道闪电
@@ -1907,28 +2024,39 @@ function tickFrozen(dt) {
 }
 
 // 落雷用的闪电网格池
+// v2.26：池子 14 → 30 道（原来 26 个目标里只有 14 道有闪电，看着"就一点点"）。
+// 每道加粗（0.14→0.21）+ 加一根贯穿天地的光柱，才有雷暴的压迫感。
 const boltPool = [];
-for (let i = 0; i < 14; i++) {
+for (let i = 0; i < 30; i++) {
   const g = new THREE.Group();
-  for (let k = 0; k < 5; k++) {
-    const seg = new THREE.Mesh(new THREE.BoxGeometry(0.14, 1, 0.14),
-      new THREE.MeshBasicMaterial({ color: 0xdff3ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
-    seg.position.y = 1.1 + k * 1.0;
-    seg.position.x = (Math.random() - 0.5) * 0.5;
-    seg.position.z = (Math.random() - 0.5) * 0.5;
-    seg.rotation.z = (Math.random() - 0.5) * 0.4;
+  // ⚠️ 光柱不能高过相机（相机在 y≈12.5，光柱 26 高 = 相机在柱体内部 → 渲染成一大块色板）
+  const col = new THREE.Mesh(new THREE.BoxGeometry(0.44, 9, 0.44),
+    new THREE.MeshBasicMaterial({ color: 0x8fd8ff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+  col.position.y = 4.5;
+  g.add(col);
+  for (let k = 0; k < 4; k++) {
+    const seg = new THREE.Mesh(new THREE.BoxGeometry(0.21, 1.3, 0.21),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0, blending: THREE.AdditiveBlending, depthWrite: false }));
+    seg.position.y = 0.9 + k * 1.3;
     g.add(seg);
   }
   g.visible = false;
   scene.add(g);
-  boltPool.push({ g, t: 1, dur: 0.42 });
+  boltPool.push({ g, t: 1, dur: 0.6, col });
 }
 function strikeBolt(x, z) {
   const b = boltPool.find((v) => v.t >= 1) || boltPool[0];
   b.t = 0; b.g.visible = true;
   b.g.position.set(x, 0, z);
-  b.g.children.forEach((seg, k) => { seg.position.x = (Math.random() - 0.5) * 0.6; seg.position.z = (Math.random() - 0.5) * 0.6; seg.rotation.z = (Math.random() - 0.5) * 0.45; seg.scale.y = 1.1 + k * 0.9; });
-  burst(x, 0.4, z, 8, { speed: 4.6, life: 0.4, size: 0.9, up: 5, colors: [0xdff3ff, 0x9fe8ff, 0xffffff] });
+  b.g.children.forEach((seg, k) => {
+    if (k === 0) return;                                   // 第 0 个是光柱，不抖动
+    seg.position.x = (Math.random() - 0.5) * 0.75;
+    seg.position.z = (Math.random() - 0.5) * 0.75;
+    seg.rotation.z = (Math.random() - 0.5) * 0.5;
+    seg.scale.y = 0.9 + Math.random() * 1.3;
+  });
+  burst(x, 0.4, z, 10, { speed: 5.2, life: 0.42, size: 1.0, up: 5.5, colors: [0xffffff, 0xdff3ff, 0x9fe8ff] });
+  shockRing(x, z, 2.6, 0xbfe9ff, 0.34);                    // 落点冲击环
 }
 // 冰块视觉：套在被冻单位身上的半透明方块（池化 14 个，跟着前 14 个冻结目标走）
 const icePool = [];
@@ -1958,7 +2086,8 @@ function updateBolts(dt) {
     if (b.t >= 1) { if (b.g.visible) b.g.visible = false; continue; }
     b.t += dt / b.dur;
     const o = Math.max(0, 1 - b.t) * (b.t < 0.25 ? 1 : 0.6);
-    for (const seg of b.g.children) seg.material.opacity = o;
+    for (let k = 1; k < b.g.children.length; k++) b.g.children[k].material.opacity = o;
+    b.col.material.opacity = o * 0.34;                     // 光柱淡一些，不然一整片白
   }
 }
 
@@ -2000,7 +2129,9 @@ function castFlame(d0) {
 
 // ── 雷：全屏落雷（视野半径内的目标各劈一道）
 function castBolt(d0) {
-  const R = 17.5, dmgB = d0 * 0.85;
+  // v2.26：范围 17.5→24、伤害 0.85→1.15（三种属性里最高，玩家要求）、上限 26→60。
+  // 视觉只给最近的 30 个目标画闪电（伤害照打全部）—— 池子有限，但画面上已经是雷暴。
+  const R = 24, dmgB = d0 * 1.15;
   const c = game.crowd;
   const targets = [];
   for (let i = 0; i < c.N; i++) {
@@ -2011,14 +2142,18 @@ function castBolt(d0) {
   for (const m of monsters) if (Math.hypot(m.x - hero.x, m.z - hero.z) <= R) targets.push({ m, x: m.x, z: m.z });
   // 全打太强 → 优先打近的（真正"满屏"但不至于一键清场）
   targets.sort((a, b) => (Math.hypot(a.x - hero.x, a.z - hero.z) - Math.hypot(b.x - hero.x, b.z - hero.z)));
-  const hitList = targets.slice(0, 26);
-  for (const t of hitList) {
-    strikeBolt(t.x, t.z);
+  const hitList = targets.slice(0, 60);
+  const visualN = Math.min(hitList.length, 30);            // 只有前 30 个有闪电视觉（池子上限）
+  for (let k = 0; k < hitList.length; k++) {
+    const t = hitList[k];
+    if (k < visualN) strikeBolt(t.x, t.z);
     if (t.m) hitMonster(t.m, dmgB, true);
-    else { hurt(t.i, dmgB, true); if (c.st[t.i] !== ST.DEAD) { c.st[t.i] = ST.HURT; c.st[t.i + 0] = ST.HURT; c.stT[t.i] = 0; frozenC[t.i] = Math.max(frozenC[t.i] || 0, 0.5); } }
+    else { hurt(t.i, dmgB, true); if (c.st[t.i] !== ST.DEAD) { c.st[t.i] = ST.HURT; c.stT[t.i] = 0; frozenC[t.i] = Math.max(frozenC[t.i] || 0, 0.5); } }
   }
   damageObstaclesIn((o) => Math.hypot(o.x - hero.x, o.z - hero.z) <= R, d0 * 0.7);
-  for (let k = 0; k < 30; k++) {
+  shockRing(hero.x, hero.z, R * 0.9, 0x9fe8ff, 0.55);
+  S.flash = Math.max(S.flash, 0.42);
+  for (let k = 0; k < 40; k++) {
     const a = Math.random() * 6.28, rr = Math.random() * R;
     burst(hero.x + Math.sin(a) * rr, 0.3, hero.z + Math.cos(a) * rr, 2,
       { speed: 2, life: 0.45, size: 0.9, up: 6, rise: true, colors: [0xdff3ff, 0x9fe8ff, 0xffffff] });
@@ -2166,7 +2301,9 @@ const BOSS_KITS = [
   { n: 1, kit: ['charge'], cd: 220, enrageAt: 0.30, label: 'Charge' },
   { n: 2, kit: ['charge', 'slam'], cd: 210, enrageAt: 0.30, label: 'Charge / Slam' },
   { n: 3, kit: ['charge', 'slam', 'summon'], cd: 200, enrageAt: 0.32, label: 'Charge / Slam / Summon' },
-  { n: 4, kit: ['charge', 'charge', 'slam', 'summon'], cd: 150, enrageAt: 0.40, label: 'Charge ×2 / Slam / Summon — faster, enrages sooner' },
+  { n: 4, kit: ['charge', 'slam', 'summon', 'spin'], cd: 175, enrageAt: 0.34, label: 'Charge / Slam / Summon / Spin' },
+  { n: 5, kit: ['charge', 'charge', 'slam', 'summon', 'spin', 'spike'], cd: 148, enrageAt: 0.40,
+    label: 'Full kit — Charge / Slam / Summon / Spin / Earthshatter, faster and enrages sooner' },
 ];
 const bossKitOf = (num) => BOSS_KITS[Math.min(BOSS_KITS.length - 1, Math.max(0, num - 1))];
 
@@ -2194,6 +2331,8 @@ const bossAI = {
         T.aimYaw = Math.atan2(dx, dz);
         if (T.mode === 'charge') telegraph.line(c.x[bi], c.z[bi], T.aimYaw, 16);
         else if (T.mode === 'slam') telegraph.ring(c.x[bi], c.z[bi], 5);
+        else if (T.mode === 'spin') telegraph.ring(c.x[bi], c.z[bi], 5.2);
+        else if (T.mode === 'spike') telegraph.line(c.x[bi], c.z[bi], T.aimYaw, 13);
         else banner('Summoning', 900);
         tone(T.mode === 'summon' ? 180 : 140, 0.35, 'sawtooth', 0.06, -40);
       }
@@ -2233,6 +2372,53 @@ const bossAI = {
         }
         telegraph.hide();
       } else { T.mode = 'chase'; T.cd = T.kitCd + 40; }
+    } else if (T.mode === 'spin') {                       // v2.25 回旋斩：原地旋身，大范围击退
+      if (T.t < 30) { telegraph.progress(T.t / 30); c.band[bi] = 0; c.pref[bi] = 0.2; }
+      else if (T.t === 30) {
+        const R = 5.2, dmg = 3.2 * (T.enraged ? 1.25 : 1);
+        shockRing(c.x[bi], c.z[bi], R, 0xff8a5c, 0.5);
+        shockRing(c.x[bi], c.z[bi], R * 0.6, 0xffe08a, 0.38);
+        burst(c.x[bi], 0.6, c.z[bi], 34, { speed: 8.5, life: 0.55, size: 1.3, up: 4, colors: [0xff8a5c, 0xffd06a, 0xffffff] });
+        S.shake = 1.0; game.freeze = 7; S.flash = 0.26;
+        tone(300, 0.3, 'square', 0.06, -220);
+        if (Math.hypot(hero.x - c.x[bi], hero.z - c.z[bi]) < R) {
+          damageHero(dmg, true);
+          const kx = hero.x - c.x[bi], kz = hero.z - c.z[bi], kd = Math.hypot(kx, kz) || 1;
+          hero.x += kx / kd * 3.4; hero.z += kz / kd * 3.4;
+        }
+        for (let k = 0; k < c.N; k++) {                    // 旋身也会打飞自己人
+          if (c.st[k] === ST.OFF || c.st[k] === ST.DEAD || k === bi) continue;
+          const dx2 = c.x[k] - c.x[bi], dz2 = c.z[k] - c.z[bi], d2 = Math.hypot(dx2, dz2) || 1;
+          if (d2 > R) continue;
+          hurt(k, 90, true);
+          if (c.st[k] !== ST.DEAD) { c.x[k] += dx2 / d2 * 2.6; c.z[k] += dz2 / d2 * 2.6; }
+        }
+        telegraph.hide();
+      } else { T.mode = 'chase'; T.cd = T.kitCd + 30; }
+    } else if (T.mode === 'spike') {                      // v2.25 地裂：一排尖刺沿直线窜出
+      if (T.t < 40) { telegraph.progress(T.t / 40); }
+      else if (T.t === 40) {
+        const LEN = 13, HALF = 1.5, dmg = 3.6 * (T.enraged ? 1.25 : 1);
+        const dx0 = Math.sin(T.aimYaw), dz0 = Math.cos(T.aimYaw);
+        for (let k = 1; k <= 9; k++) spikeFx(c.x[bi] + dx0 * k * 1.4, c.z[bi] + dz0 * k * 1.4, k);
+        // 判定：沿直线的矩形
+        const hx = hero.x - c.x[bi], hz = hero.z - c.z[bi];
+        const along = hx * dx0 + hz * dz0;
+        if (along > -1 && along < LEN && Math.abs(hx * dz0 - hz * dx0) <= HALF) {
+          damageHero(dmg, true);
+          const kx = hero.x - c.x[bi], kz = hero.z - c.z[bi], kd = Math.hypot(kx, kz) || 1;
+          hero.x += kx / kd * 2.0; hero.z += kz / kd * 2.0;
+        }
+        for (let k = 0; k < c.N; k++) {                    // 地刺不认人，小兵也吃
+          if (c.st[k] === ST.OFF || c.st[k] === ST.DEAD || k === bi) continue;
+          const kx2 = c.x[k] - c.x[bi], kz2 = c.z[k] - c.z[bi];
+          const a2 = kx2 * dx0 + kz2 * dz0;
+          if (a2 > -1 && a2 < LEN && Math.abs(kx2 * dz0 - kz2 * dx0) <= HALF) hurt(k, 80, true);
+        }
+        S.shake = 1.0; game.freeze = 7; S.flash = 0.22;
+        tone(70, 0.4, 'square', 0.07, -30);
+        telegraph.hide();
+      } else { T.mode = 'chase'; T.cd = T.kitCd + 20; }
     } else if (T.mode === 'summon') {
       if (T.t === 30) {
         for (let k = 0; k < 3; k++) {
@@ -2459,6 +2645,9 @@ function frame(now) {
   updateBurn(S.paused ? 0 : dt);
   updateBeams(S.paused ? 0 : dt);
   updateBolts(S.paused ? 0 : dt);
+  updateBossSlashes(S.paused ? 0 : dt);
+  updateSpikes(S.paused ? 0 : dt);
+  updateShockRings(S.paused ? 0 : dt);
   updateFrostRings(S.paused ? 0 : dt);
   tickFrozen(S.paused ? 0 : dt);
   updateIceBlocks();
@@ -2551,7 +2740,8 @@ window.__diag = () => {
 };
 window.__test = {
   damageHero, camera, equipGot, buildWeapon, obstacles, potions, breakObstacle, spawnPotion,
-  ult, cycleUlt, ULTS, boltPool, frostRings, frozenM, tickFrozen, doNova, scene, camera, radius, dmg, CFG, get weaponGrp() { return weaponGrp; }, spin: doSpin, dash: doDash, nova: doNova, spawnMonster, spawnDrop, monsters, drops, bossAI, telegraph, hurt, COMBO,
+  ult, cycleUlt, ULTS, boltPool, frostRings, frozenM, tickFrozen, doNova, scene, camera, radius, dmg, CFG,
+  bossCleave, spikes, shockRings, bossSlashes, BOSS_KITS, BOSS_CLEAVE, get weaponGrp() { return weaponGrp; }, spin: doSpin, dash: doDash, nova: doNova, spawnMonster, spawnDrop, monsters, drops, bossAI, telegraph, hurt, COMBO,
   get lairs() { return lairs; },
   killFirstBoss: () => { S.firstBossDown = true; }, tick: simStep, levelUp, damageHero, spawnBoss,
   stand: () => { keys.clear(); },          // 清空输入 → 静立不动（用于验证"站桩是否会死"）
