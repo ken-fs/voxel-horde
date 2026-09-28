@@ -2,3 +2,7 @@
 node_modules/
 *.log
 site/
+
+# itch 投稿 zip 是构建产物（由 site/ 打包而来），不进 git
+# 封面/截图是手工产物，保留
+dist/itch/*.zip
