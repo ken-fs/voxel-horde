@@ -101,15 +101,21 @@ if (existsSync(join(ROOT, '.indexnow-key'))) {
 }
 
 // 缓存 + 安全头（Cloudflare Workers 静态资源支持 _headers）
-writeFileSync(join(OUT, '_headers'), `/*
+writeFileSync(join(OUT, '_headers'), `# ⚠️ 不要加 X-Frame-Options: SAMEORIGIN —— 它会让 itch.io 的 iframe 拒绝加载。
+# itch 用 sandbox="allow-scripts allow-same-origin ..." 包游戏；万一哪天不带 allow-same-origin，
+# ES module 的 fetch 会因跨源失败（ERR_FAILED），表现是加载屏永远停在 99%。
+# 所以这里显式放开 CORS 兜底（静态游戏无敏感数据，无风险）。
+/*
+  Access-Control-Allow-Origin: *
   X-Content-Type-Options: nosniff
   Referrer-Policy: strict-origin-when-cross-origin
-  X-Frame-Options: SAMEORIGIN
 
 /vendor/*
+  Access-Control-Allow-Origin: *
   Cache-Control: public, max-age=31536000, immutable
 
 /lib/*
+  Access-Control-Allow-Origin: *
   Cache-Control: public, max-age=604800
 
 /

@@ -1215,7 +1215,7 @@ function applyWave() {
   CROWD.officerHp = Math.round(BASE.officer * (1 + 0.18 * k));
   CROWD.engaged = Math.min(190, BASE.engaged + 14 * k);
   CROWD.waveEvery = [Math.max(18, BASE.waveEvery[0] - 3 * k), Math.max(40, BASE.waveEvery[1] - 7 * k)];
-  banner(`第 ${S.wave} 波`, 1100);
+  banner(`Wave ${S.wave}`, 1100);
   // ⚠️ 必须用 sim 帧倒计时，不能用 setTimeout：
   //    sim 与真实时间解耦，setTimeout 会在快进时漏掉、在暂停时误触发
   if (S.wave % CFG.bossEvery === 0) S.bossIn = 54;   // 0.9 秒后 Boss 降临
@@ -2590,8 +2590,8 @@ function frame(now) {
       const avg = fpsAcc / fpsN * 1000;
       const fc = fpsN / fpsAcc;
       el.style.display = 'block';
-      el.innerHTML = `${fc.toFixed(0)} fps · ${avg.toFixed(1)} ms · 峰值 ${(fpsMax * 1000).toFixed(0)} ms`
-        + `<br>停顿 ${game.freeze} · 粒子 ${parts.length} · 敌 ${game.crowd.N}`;
+      el.innerHTML = `${fc.toFixed(0)} fps · ${avg.toFixed(1)} ms · peak ${(fpsMax * 1000).toFixed(0)} ms`
+        + `<br>hitstop ${game.freeze} · particles ${parts.length} · enemies ${game.crowd.N}`;
       fpsN = 0; fpsAcc = 0; fpsMax = 0;
     }
   }
